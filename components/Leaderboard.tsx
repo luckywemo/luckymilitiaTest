@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useBlockchainStats } from '../utils/blockchain';
 
 interface Props {
@@ -17,20 +17,29 @@ interface LeaderboardEntry {
 
 const RANK_BADGES = ['🥇', '🥈', '🥉'];
 const RANK_COLORS = ['text-yellow-400', 'text-stone-300', 'text-amber-600'];
+const PODIUM_STYLES = [
+    'border-yellow-500/40 bg-yellow-500/10',
+    'border-stone-400/30 bg-stone-400/5',
+    'border-amber-700/30 bg-amber-700/5',
+];
 
 function formatAddress(addr: string): string {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
 function timeSince(ts: number): string {
-    if (!ts) return 'NEVER';
+    if (!ts) return '—';
     const delta = Date.now() - ts;
     const mins = Math.floor(delta / 60000);
-    if (mins < 1) return 'JUST_NOW';
-    if (mins < 60) return `${mins}m_AGO`;
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h_AGO`;
-    return `${Math.floor(hrs / 24)}d_AGO`;
+    if (hrs < 24) return `${hrs}h`;
+    return `${Math.floor(hrs / 24)}d`;
+}
+
+function displayName(entry: LeaderboardEntry): string {
+    return entry.username || formatAddress(entry.address);
 }
 
 export default function Leaderboard({ activeAddress, playerName }: Props) {
@@ -41,18 +50,21 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [verifiedStats, setVerifiedStats] = useState<{ [addr: string]: boolean }>({});
     const [isVerifying, setIsVerifying] = useState<string | null>(null);
+    const [search, setSearch] = useState('');
+    const listRef = useRef<HTMLDivElement>(null);
+    const myRowRef = useRef<HTMLDivElement>(null);
 
     const { getStats } = useBlockchainStats();
 
     useEffect(() => {
         let isMounted = true;
-        
+
         async function fetchLeaderboard(isInitialFetch = false) {
             try {
                 if (isInitialFetch && leaderboardData.length === 0) {
                     setIsLoading(true);
                 }
-                
+
                 let queryPeriod = 'alltime';
                 const now = new Date();
                 const ymd = now.toISOString().split('T')[0].replace(/-/g, '');
@@ -61,10 +73,10 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
                 if (period === 'daily') queryPeriod = `daily:${ymd}`;
                 if (period === 'monthly') queryPeriod = `monthly:${ym}`;
 
-                const response = await fetch(`/api/leaderboard?period=${queryPeriod}&type=${type}`);
+                const response = await fetch(`/api/leaderboard?period=${queryPeriod}&type=${type}&limit=100`);
                 if (!response.ok) throw new Error('Failed to fetch leaderboard');
                 const data = await response.json();
-                
+
                 if (isMounted) {
                     setLeaderboardData(data);
                     setError(null);
@@ -77,13 +89,8 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
             }
         }
 
-        // Initial fetch
         fetchLeaderboard(true);
-
-        // Polling every 10 seconds
-        const intervalId = setInterval(() => {
-            fetchLeaderboard(false);
-        }, 10000);
+        const intervalId = setInterval(() => fetchLeaderboard(false), 10000);
 
         return () => {
             isMounted = false;
@@ -91,7 +98,15 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
         };
     }, [period, type]);
 
-    // Find current player's rank
+    const filteredData = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return leaderboardData;
+        return leaderboardData.filter(e =>
+            (e.username?.toLowerCase().includes(q)) ||
+            e.address.toLowerCase().includes(q)
+        );
+    }, [leaderboardData, search]);
+
     const myEntry = useMemo(() => {
         if (!activeAddress) return null;
         const idx = leaderboardData.findIndex(e => e.address.toLowerCase() === activeAddress.toLowerCase());
@@ -99,16 +114,17 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
         return { ...leaderboardData[idx], rank: idx + 1 };
     }, [leaderboardData, activeAddress]);
 
+    const topThree = useMemo(() => leaderboardData.slice(0, 3), [leaderboardData]);
+    const topScore = leaderboardData.length > 0 ? leaderboardData[0].score : 1;
+
     const handleVerify = async (addr: string, expectedScore: number) => {
         try {
             setIsVerifying(addr);
             const stats = await getStats(addr);
             if (stats) {
-                // Simplified verification: check if kills + wins derived score matches roughly
-                // Or just if we got a response from the contract for this user
                 const onChainScore = Number(stats.kills) * 10 + Number(stats.wins) * 50;
                 if (onChainScore >= expectedScore) {
-                     setVerifiedStats(prev => ({ ...prev, [addr]: true }));
+                    setVerifiedStats(prev => ({ ...prev, [addr]: true }));
                 }
             }
         } catch (e) {
@@ -118,224 +134,264 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
         }
     };
 
-    const topScore = leaderboardData.length > 0 ? leaderboardData[0].score : 1;
+    const scrollToMe = useCallback(() => {
+        myRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, []);
 
     return (
-        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
+        <div className="flex flex-col h-full min-h-0 gap-3 animate-in fade-in slide-in-from-right-4 duration-500">
 
-            {/* Header */}
-            <div className="p-4 lg:p-6 bg-stone-900/60 border border-stone-800 rounded-xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-500 via-orange-600 to-transparent"></div>
-                <div className="absolute -top-12 -right-12 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl"></div>
-                <div className="flex items-center justify-between mb-3 relative z-10">
-                    <h3 className="text-lg lg:text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
-                        <span className="text-2xl">🏆</span> COMBAT_RECORDS
-                    </h3>
-                    <div className="flex flex-col gap-2">
-                        <div className="flex gap-1 justify-end">
-                            {([
-                                { id: 'combined', label: 'ALL_OPS' },
-                                { id: 'pve', label: 'CAMPAIGN' },
-                                { id: 'pvp', label: 'ARENA' }
-                            ] as const).map((t) => (
-                                <button
-                                    key={t.id}
-                                    onClick={() => setType(t.id)}
-                                    className={`px-2 py-1 rounded text-[7px] font-black uppercase tracking-tighter transition-all ${type === t.id
-                                        ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
-                                        : 'bg-black/40 text-stone-600 border border-stone-800/40 hover:text-stone-400'
-                                    }`}
-                                >
-                                    {t.label}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="flex gap-1">
-                            {(['alltime', 'monthly', 'daily'] as const).map((p) => (
-                                <button
-                                    key={p}
-                                    onClick={() => setPeriod(p)}
-                                    className={`px-2.5 py-1.5 border rounded text-[8px] lg:text-[9px] font-black uppercase tracking-wider transition-all ${period === p
-                                        ? 'bg-orange-500 text-white border-orange-400 shadow-lg shadow-orange-500/20'
-                                        : 'bg-stone-950 text-stone-500 border-stone-800 hover:border-stone-600 hover:text-stone-300'
-                                        }`}
-                                >
-                                    {p === 'alltime' ? 'ALL_TIME' : p === 'monthly' ? 'MONTHLY' : 'DAILY'}
-                                </button>
-                            ))}
-                        </div>
+            {/* Header + filters */}
+            <div className="shrink-0 p-3 lg:p-4 bg-stone-900/60 border border-stone-800 rounded-xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-500 via-orange-600 to-transparent" />
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 relative z-10">
+                    <div>
+                        <h3 className="text-base lg:text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
+                            <span>🏆</span> COMBAT_RECORDS
+                        </h3>
+                        <p className="text-[8px] lg:text-[9px] text-stone-500 font-bold uppercase tracking-wider mt-1">
+                            {leaderboardData.length} operators · top 100 · {period.replace('_', ' ')}
+                        </p>
                     </div>
-                </div>
-                <div className="flex items-center justify-between relative z-10">
-                    <p className="text-[9px] lg:text-[10px] text-stone-500 font-bold uppercase tracking-wider">
-                        Protocol // {type.toUpperCase()} // {period.toUpperCase()} // {leaderboardData.length} OPERATORS_INDEXED
-                    </p>
-                    {!isLoading && !error && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
-                            <span className="text-[7px] text-green-500 font-black uppercase">LIVE_FEED</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Personal Stats Card (if user is ranked) */}
-            {myEntry && (
-                <div className="p-4 bg-orange-500/5 border border-orange-500/30 rounded-xl relative overflow-hidden">
-                    <div className="absolute -top-8 -right-8 w-24 h-24 bg-orange-500/10 rounded-full blur-xl"></div>
-                    <div className="flex items-center justify-between relative z-10">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-orange-600 flex items-center justify-center text-lg font-black text-white shadow-lg">
-                                #{myEntry.rank}
-                            </div>
-                            <div>
-                                <div className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                    {playerName || formatAddress(myEntry.address)}
-                                    <span className="text-[7px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">YOU</span>
-                                </div>
-                                <div className="text-[8px] text-stone-500 font-bold uppercase mt-0.5">
-                                    {myEntry.kills} KILLS // {myEntry.wins} WINS // LAST: {timeSince(myEntry.lastCombat)}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                            <div className="text-right">
-                                <div className="text-xl lg:text-2xl font-stencil text-orange-500">{myEntry.score.toLocaleString()}</div>
-                                <div className="text-[7px] text-stone-600 font-bold uppercase">COMBAT_SCORE</div>
-                            </div>
-                            
-                            {verifiedStats[myEntry.address] ? (
-                                <div className="flex items-center gap-1.5 px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded text-[7px] text-cyan-400 font-black animate-in zoom-in duration-300">
-                                    <span className="text-[10px]">🛡️</span> SOROBAN_VERIFIED
-                                </div>
-                            ) : (
-                                <button 
-                                    onClick={() => handleVerify(myEntry.address, myEntry.score)}
-                                    disabled={isVerifying === myEntry.address}
-                                    className="px-2 py-1 bg-stone-900 border border-stone-800 rounded text-[7px] text-stone-400 font-black hover:text-white hover:border-stone-600 transition-all disabled:opacity-50"
-                                >
-                                    {isVerifying === myEntry.address ? 'SYNCHRONIZING...' : 'VERIFY_ON_CHAIN'}
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Column Headers */}
-            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[7px] lg:text-[8px] font-black text-stone-600 uppercase tracking-widest border-b border-stone-800/50">
-                <div className="col-span-1">#</div>
-                <div className="col-span-4">OPERATOR</div>
-                <div className="col-span-2 text-center">KILLS</div>
-                <div className="col-span-2 text-center">WINS</div>
-                <div className="col-span-1 text-center hidden lg:block">LAST</div>
-                <div className="col-span-2 lg:col-span-2 text-right">SCORE</div>
-            </div>
-
-            {/* Leaderboard Body */}
-            <div className="space-y-1.5 max-h-[40vh] lg:max-h-[500px] overflow-y-auto pr-2 pb-2">
-                {isLoading ? (
-                    <div className="space-y-2">
-                        {[1, 2, 3, 4, 5].map(i => (
-                            <div key={i} className="h-14 bg-stone-900/20 border border-stone-800/50 rounded-lg animate-pulse" style={{ animationDelay: `${i * 100}ms` }}></div>
+                    <div className="flex flex-wrap gap-1">
+                        {([
+                            { id: 'combined', label: 'ALL' },
+                            { id: 'pve', label: 'PVE' },
+                            { id: 'pvp', label: 'PVP' },
+                        ] as const).map((t) => (
+                            <button
+                                key={t.id}
+                                onClick={() => setType(t.id)}
+                                className={`px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wide transition-all ${type === t.id
+                                    ? 'bg-cyan-500 text-black'
+                                    : 'bg-black/40 text-stone-500 border border-stone-800 hover:text-stone-300'
+                                }`}
+                            >
+                                {t.label}
+                            </button>
+                        ))}
+                        <span className="w-px h-5 bg-stone-800 self-center mx-0.5" />
+                        {(['alltime', 'monthly', 'daily'] as const).map((p) => (
+                            <button
+                                key={p}
+                                onClick={() => setPeriod(p)}
+                                className={`px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wide transition-all ${period === p
+                                    ? 'bg-orange-500 text-white'
+                                    : 'bg-stone-950 text-stone-500 border border-stone-800 hover:text-stone-300'
+                                }`}
+                            >
+                                {p === 'alltime' ? 'ALL' : p === 'monthly' ? 'MON' : 'DAY'}
+                            </button>
                         ))}
                     </div>
-                ) : error ? (
-                    <div className="text-center py-12 bg-stone-950/40 border border-red-900/30 rounded-lg">
-                        <span className="text-2xl mb-2 block">⚠️</span>
-                        <p className="text-[10px] text-red-500 font-black uppercase tracking-widest">UPLINK_ERROR</p>
-                        <p className="text-[8px] text-stone-600 mt-1">{error}</p>
-                    </div>
-                ) : leaderboardData.length > 0 ? (
-                    leaderboardData.slice(0, 50).map((op, index) => {
-                        const isMe = op.address.toLowerCase() === activeAddress?.toLowerCase();
-                        const isTop3 = index < 3;
-                        const scorePercent = Math.max(5, Math.round((op.score / topScore) * 100));
+                </div>
+            </div>
 
+            {/* Search + your rank bar */}
+            <div className="shrink-0 flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600 text-xs">⌕</span>
+                    <input
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        placeholder="Search operator or address..."
+                        className="w-full bg-black/60 border border-stone-800 rounded-lg pl-8 pr-3 py-2 text-[10px] font-bold text-white placeholder:text-stone-700 outline-none focus:border-orange-500/50 transition-colors"
+                    />
+                    {search && (
+                        <button
+                            onClick={() => setSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-600 hover:text-white text-xs px-1"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
+                {myEntry && (
+                    <button
+                        onClick={scrollToMe}
+                        className="shrink-0 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-[9px] font-black text-orange-400 uppercase tracking-wide hover:bg-orange-500/20 transition-all flex items-center gap-2"
+                    >
+                        <span className="w-5 h-5 rounded bg-orange-600 text-white flex items-center justify-center text-[9px]">#{myEntry.rank}</span>
+                        Jump to me
+                    </button>
+                )}
+            </div>
+
+            {/* Podium — top 3 */}
+            {!isLoading && !error && topThree.length > 0 && !search && (
+                <div className="shrink-0 grid grid-cols-3 gap-2">
+                    {topThree.map((op, i) => {
+                        const isMe = op.address.toLowerCase() === activeAddress?.toLowerCase();
                         return (
                             <div
                                 key={op.address}
-                                className={`grid grid-cols-12 gap-2 px-4 py-3 rounded-lg items-center group transition-all duration-300 relative overflow-hidden ${isMe
-                                    ? 'bg-orange-500/10 border border-orange-500/40 shadow-lg shadow-orange-500/5'
-                                    : isTop3
-                                        ? 'bg-stone-900/60 border border-stone-700/60 hover:border-stone-600'
-                                        : 'bg-stone-900/30 border border-stone-800/40 hover:bg-stone-900/50 hover:border-stone-700'
-                                    }`}
-                                style={{ animationDelay: `${index * 50}ms` }}
+                                className={`p-2 lg:p-3 rounded-lg border text-center relative overflow-hidden ${PODIUM_STYLES[i]} ${isMe ? 'ring-1 ring-orange-500/50' : ''}`}
                             >
-                                {/* Score bar background */}
-                                <div
-                                    className={`absolute left-0 top-0 h-full transition-all duration-700 ${isMe ? 'bg-orange-500/5' : 'bg-white/[0.02]'}`}
-                                    style={{ width: `${scorePercent}%` }}
-                                ></div>
-
-                                {/* Rank */}
-                                <div className={`col-span-1 font-black text-sm relative z-10 ${isTop3 ? RANK_COLORS[index] : 'text-stone-600'}`}>
-                                    {isTop3 ? RANK_BADGES[index] : index + 1}
+                                <div className="text-lg lg:text-xl mb-0.5">{RANK_BADGES[i]}</div>
+                                <div className="text-[9px] lg:text-[10px] font-black text-white uppercase truncate px-1">
+                                    {displayName(op)}
                                 </div>
-
-                                {/* Operator */}
-                                <div className="col-span-4 flex items-center gap-2 relative z-10">
-                                    <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-black text-white uppercase ${isTop3 ? 'bg-orange-600' : 'bg-stone-800'}`}>
-                                        {(op.username || op.address)[0]}
-                                    </div>
-                                    <div className="truncate flex items-center gap-1.5">
-                                        <div className="text-[10px] font-black text-white uppercase tracking-wide truncate">
-                                            {op.username || formatAddress(op.address)}
-                                        </div>
-                                        {verifiedStats[op.address] && (
-                                            <span className="text-[8px] text-cyan-500" title="Blockchain Verified">🛡️</span>
-                                        )}
-                                    </div>
-                                    {isMe && <span className="text-[6px] text-orange-400 font-bold">YOUR_PROFILE</span>}
+                                <div className="text-[8px] text-stone-500 font-bold mt-0.5">
+                                    {op.kills}K · {op.wins}W
                                 </div>
-
-
-                                {/* Kills */}
-                                <div className="col-span-2 text-center text-[10px] font-black text-stone-300 relative z-10">
-                                    {op.kills.toLocaleString()}
-                                </div>
-
-                                {/* Wins */}
-                                <div className="col-span-2 text-center text-[10px] font-black text-stone-300 relative z-10">
-                                    {op.wins.toLocaleString()}
-                                </div>
-
-                                {/* Last Combat */}
-                                <div className="col-span-1 text-center text-[7px] font-bold text-stone-600 uppercase hidden lg:block relative z-10">
-                                    {timeSince(op.lastCombat)}
-                                </div>
-
-                                {/* Score */}
-                                <div className={`col-span-2 lg:col-span-2 text-right font-black relative z-10 ${isTop3 ? 'text-orange-500 text-sm' : 'text-stone-400 text-[10px]'}`}>
+                                <div className={`text-sm lg:text-base font-stencil mt-1 ${RANK_COLORS[i]}`}>
                                     {op.score.toLocaleString()}
                                 </div>
                             </div>
                         );
-                    })
-                ) : (
-                    <div className="text-center py-14 bg-stone-950/40 border border-dashed border-stone-800 rounded-lg">
-                        <span className="text-3xl mb-3 block opacity-30">📡</span>
-                        <p className="text-[10px] text-stone-600 font-black uppercase tracking-widest">NO_COMBAT_DATA_FOR_PERIOD</p>
-                        <p className="text-[8px] text-stone-700 mt-1">Deploy to the battlefield to register on the leaderboard</p>
-                    </div>
-                )}
-            </div>
+                    })}
+                </div>
+            )}
 
-            {/* Footer */}
-            <div className="p-3 bg-stone-950/60 border border-stone-800/50 rounded-lg flex items-center justify-between">
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                        <div className="w-1 h-1 bg-cyan-500 rounded-full animate-pulse"></div>
-                        <p className="text-[7px] text-stone-600 font-black uppercase tracking-widest">
-                            {type === 'pvp' ? 'ARENA_SCORE = (KILLS × 25) + (WINS × 100)' : 'CAMPAIGN_SCORE = (KILLS × 5) + (WINS × 20)'}
-                        </p>
+            {/* Personal card when ranked but not in top 3 spotlight */}
+            {myEntry && myEntry.rank > 3 && !search && (
+                <div className="shrink-0 px-3 py-2 bg-orange-500/5 border border-orange-500/25 rounded-lg flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-7 h-7 rounded bg-orange-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                            #{myEntry.rank}
+                        </span>
+                        <div className="min-w-0">
+                            <div className="text-[10px] font-black text-white uppercase truncate">
+                                {playerName || displayName(myEntry)} <span className="text-orange-400 text-[8px]">YOU</span>
+                            </div>
+                            <div className="text-[8px] text-stone-500">{myEntry.kills} kills · {myEntry.wins} wins</div>
+                        </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <div className="text-base font-stencil text-orange-500">{myEntry.score.toLocaleString()}</div>
+                        {verifiedStats[myEntry.address] ? (
+                            <span className="text-[7px] text-cyan-400 font-black">🛡️ VERIFIED</span>
+                        ) : (
+                            <button
+                                onClick={() => handleVerify(myEntry.address, myEntry.score)}
+                                disabled={isVerifying === myEntry.address}
+                                className="text-[7px] text-stone-500 hover:text-white font-black disabled:opacity-50"
+                            >
+                                {isVerifying === myEntry.address ? 'SYNC...' : 'VERIFY'}
+                            </button>
+                        )}
                     </div>
                 </div>
-                <p className="text-[7px] text-stone-700 font-bold uppercase">
-                    {leaderboardData.length > 0 ? `${leaderboardData.length} RANKED` : 'AWAITING_DATA'}
-                </p>
+            )}
+
+            {/* Table */}
+            <div className="flex-1 min-h-0 flex flex-col border border-stone-800/60 rounded-xl overflow-hidden bg-stone-950/40">
+                {/* Sticky column headers */}
+                <div className="shrink-0 grid grid-cols-[2rem_1fr_3rem_3rem_3.5rem_4rem] sm:grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_5rem] gap-1 px-2 py-2 bg-stone-900/80 border-b border-stone-800 text-[7px] sm:text-[8px] font-black text-stone-500 uppercase tracking-wider">
+                    <div>#</div>
+                    <div>Operator</div>
+                    <div className="text-center">K</div>
+                    <div className="text-center">W</div>
+                    <div className="text-center hidden sm:block">Last</div>
+                    <div className="text-right">Score</div>
+                </div>
+
+                {/* Scrollable body */}
+                <div
+                    ref={listRef}
+                    className="flex-1 min-h-[280px] max-h-[min(65vh,640px)] overflow-y-auto overscroll-contain"
+                >
+                    {isLoading ? (
+                        <div className="p-2 space-y-1">
+                            {Array.from({ length: 12 }).map((_, i) => (
+                                <div key={i} className="h-9 bg-stone-900/30 rounded animate-pulse" style={{ animationDelay: `${i * 40}ms` }} />
+                            ))}
+                        </div>
+                    ) : error ? (
+                        <div className="text-center py-16 px-4">
+                            <span className="text-2xl mb-2 block">⚠️</span>
+                            <p className="text-[10px] text-red-500 font-black uppercase">UPLINK_ERROR</p>
+                            <p className="text-[8px] text-stone-600 mt-1">{error}</p>
+                        </div>
+                    ) : filteredData.length > 0 ? (
+                        <div className="p-1.5 space-y-0.5">
+                            {filteredData.map((op) => {
+                                const index = leaderboardData.findIndex(e => e.address === op.address);
+                                const rank = index + 1;
+                                const isMe = op.address.toLowerCase() === activeAddress?.toLowerCase();
+                                const isTop3 = rank <= 3 && !search;
+                                const scorePercent = Math.max(4, Math.round((op.score / topScore) * 100));
+
+                                return (
+                                    <div
+                                        key={op.address}
+                                        ref={isMe ? myRowRef : undefined}
+                                        className={`grid grid-cols-[2rem_1fr_3rem_3rem_3.5rem_4rem] sm:grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_5rem] gap-1 px-2 py-1.5 rounded items-center relative overflow-hidden group transition-colors ${isMe
+                                            ? 'bg-orange-500/15 border border-orange-500/30'
+                                            : isTop3
+                                                ? 'bg-stone-900/50 border border-stone-700/40'
+                                                : 'hover:bg-stone-900/40 border border-transparent'
+                                        }`}
+                                    >
+                                        <div
+                                            className="absolute left-0 top-0 h-full bg-white/[0.03] transition-all duration-500 pointer-events-none"
+                                            style={{ width: `${scorePercent}%` }}
+                                        />
+
+                                        <div className={`relative z-10 font-black text-[10px] sm:text-xs tabular-nums ${isTop3 ? RANK_COLORS[rank - 1] : 'text-stone-600'}`}>
+                                            {isTop3 && !search ? RANK_BADGES[rank - 1] : rank}
+                                        </div>
+
+                                        <div className="relative z-10 flex items-center gap-1.5 min-w-0">
+                                            <div className={`w-5 h-5 rounded shrink-0 flex items-center justify-center text-[7px] font-black text-white uppercase ${isTop3 ? 'bg-orange-600' : 'bg-stone-800'}`}>
+                                                {(op.username || op.address)[0]}
+                                            </div>
+                                            <span className="text-[9px] sm:text-[10px] font-black text-white uppercase truncate">
+                                                {displayName(op)}
+                                            </span>
+                                            {verifiedStats[op.address] && (
+                                                <span className="text-[8px] shrink-0" title="Verified">🛡️</span>
+                                            )}
+                                            {isMe && (
+                                                <span className="text-[6px] text-orange-400 font-bold shrink-0 bg-orange-500/20 px-1 rounded">YOU</span>
+                                            )}
+                                        </div>
+
+                                        <div className="relative z-10 text-center text-[9px] sm:text-[10px] font-bold text-stone-400 tabular-nums">
+                                            {op.kills}
+                                        </div>
+                                        <div className="relative z-10 text-center text-[9px] sm:text-[10px] font-bold text-stone-400 tabular-nums">
+                                            {op.wins}
+                                        </div>
+                                        <div className="relative z-10 text-center text-[8px] font-bold text-stone-600 hidden sm:block tabular-nums">
+                                            {timeSince(op.lastCombat)}
+                                        </div>
+                                        <div className={`relative z-10 text-right font-black tabular-nums ${isTop3 ? 'text-orange-500 text-[11px]' : 'text-stone-400 text-[9px] sm:text-[10px]'}`}>
+                                            {op.score.toLocaleString()}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : search ? (
+                        <div className="text-center py-16 px-4">
+                            <p className="text-[10px] text-stone-500 font-black uppercase">No operators match "{search}"</p>
+                        </div>
+                    ) : (
+                        <div className="text-center py-16 px-4">
+                            <span className="text-2xl mb-2 block opacity-30">📡</span>
+                            <p className="text-[10px] text-stone-600 font-black uppercase">NO_COMBAT_DATA</p>
+                            <p className="text-[8px] text-stone-700 mt-1">Complete a mission to appear on the board</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="shrink-0 px-3 py-2 bg-stone-900/60 border-t border-stone-800 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shrink-0" />
+                        <p className="text-[7px] text-stone-600 font-bold uppercase truncate">
+                            {type === 'pvp' ? 'Arena: K×25 + W×100' : 'Campaign: K×5 + W×20'}
+                        </p>
+                    </div>
+                    <p className="text-[7px] text-stone-600 font-black uppercase shrink-0">
+                        {search
+                            ? `${filteredData.length} / ${leaderboardData.length}`
+                            : `${leaderboardData.length} ranked`}
+                    </p>
+                </div>
             </div>
         </div>
     );
+
 }

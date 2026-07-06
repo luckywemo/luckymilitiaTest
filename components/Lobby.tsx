@@ -487,7 +487,7 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
             </div>
           </div>
 
-          <div className="lg:flex-1 lg:overflow-y-auto p-3 lg:p-8">
+          <div className={`lg:flex-1 lg:overflow-y-auto p-3 lg:p-8 ${tab === 'leaderboard' ? 'flex flex-col min-h-0' : ''}`}>
             {tab === 'missions' && (
               <div className="flex flex-col gap-3 lg:gap-8 h-full">
                 <div className="flex-1 relative bg-black/60 rounded-xl border border-stone-800 overflow-hidden min-h-[200px] lg:min-h-[340px] shadow-inner p-2">

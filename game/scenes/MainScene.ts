@@ -466,7 +466,7 @@ export class MainScene extends Phaser.Scene {
       else if (data.type === 'game_over') {
         this.isMissionOver = true;
         this.playSound('sfx_victory', 0.4, false);
-        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner: data.winner } }));
+        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner: data.winner, kills: this.kills, points: this.points } }));
       }
       else if (data.type === 'initial_sync') {
         this.teamScores = data.scores;
@@ -851,7 +851,7 @@ export class MainScene extends Phaser.Scene {
         const winner = this.teamScores.alpha >= this.mpConfig.scoreLimit ? 'ALPHA' : 'BRAVO';
         this.playSound('sfx_victory', 0.4, false);
         if (this.roomId) this.connections.forEach(c => c.send({ type: 'game_over', winner }));
-        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner, alpha: this.teamScores.alpha, bravo: this.teamScores.bravo } }));
+        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner, alpha: this.teamScores.alpha, bravo: this.teamScores.bravo, kills: this.kills, points: this.points } }));
       }
     }
   }
