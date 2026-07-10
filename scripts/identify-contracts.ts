@@ -7,10 +7,11 @@ import { resolve } from 'path';
 dotenv.config({ path: resolve(process.cwd(), '.env') });
 
 const network = process.env.VITE_NETWORK === 'base' ? base : baseSepolia;
-const client = createPublicClient({
+const rawClient = createPublicClient({
     chain: network,
     transport: http()
 });
+const client = rawClient as unknown as { readContract: (p: unknown) => Promise<unknown> };
 
 const addresses = [
     '0x6798af2F4d4520D42793148Cd9B2d6701543a89F',
@@ -38,7 +39,7 @@ async function identify() {
                 functionName: 'owner'
             });
             console.log(`Owner: ${owner}`);
-        } catch (e) { }
+        } catch (e: unknown) { }
     }
 }
 

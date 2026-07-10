@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Peer, { DataConnection } from 'peerjs';
-import { PEER_CONFIG, getPeerId, getStatusFromIceState, mpLog } from '../utils/multiplayer';
-import { MPMatchMode, MPMap } from '../App';
+import { PEER_CONFIG, getPeerId, getStatusFromIceState, mpLog, createGamePeer } from '../utils/multiplayer';
+import { MPMatchMode, MPMap, MPConfig } from '../App';
 
 export interface SquadMember {
     name: string;
@@ -24,7 +24,7 @@ interface UseMultiplayerProps {
     scoreLimit: number;
     alphaBots: number;
     bravoBots: number;
-    onGameStart: (roomCode: string, isHost: boolean, squad: SquadMember[], mpConfig: any) => void;
+    onGameStart: (roomCode: string, isHost: boolean, squad: SquadMember[], mpConfig: MPConfig) => void;
 }
 
 export function useMultiplayer({
@@ -106,11 +106,14 @@ export function useMultiplayer({
         });
     };
 
-    const handleCreateRoom = () => {
+    const handleCreateRoom = (preferredCode?: string, attempt = 0) => {
         const urlParams = new URLSearchParams(window.location.search);
-        let code = urlParams.get('room');
-        if (!code || isHost) code = Math.floor(1000 + Math.random() * 9000).toString();
-        
+        let code = preferredCode || urlParams.get('room') || undefined;
+        // On retry, always generate a fresh random code to avoid stale/unavailable IDs
+        if (!code || attempt > 0) code = Math.floor(1000 + Math.random() * 9000).toString();
+
+        mpLog(`=== ROOM CREATION ===\nGenerated Code: ${code}\nIsHost: ${isHost}\nAttempt: ${attempt}\nURL Room Param: ${urlParams.get('room')}`, 'info');
+
         setIsHost(true);
         setActiveRoom(code);
         setSquad([{ name: playerName, team: 'alpha', id: 'host', isReady: true, ping: 0 }]);
@@ -119,14 +122,25 @@ export function useMultiplayer({
 
         try {
             const peerId = getPeerId('SCTR', code);
+            mpLog(`Creating host peer with ID: ${peerId}`, 'info');
             peerRef.current = new Peer(peerId, PEER_CONFIG);
 
             peerRef.current.on('error', (err) => {
                 console.error('[Multiplayer] Host error:', err);
                 mpLog(`HOST_ERR: ${err.type} - ${err.message}`, 'error');
-                if (err.type === 'peer-unavailable') setStatusMsg('ROOM_NOT_FOUND');
-                else if (err.type === 'unavailable-id') setStatusMsg('CODE_COLLISION_RETRY');
-                else setStatusMsg(`SERVER_ERR: ${err.type}`);
+                if (err.type === 'peer-unavailable') {
+                    setStatusMsg('ROOM_NOT_FOUND');
+                } else if (err.type === 'unavailable-id') {
+                    setStatusMsg('CODE_COLLISION_RETRY');
+                    if (attempt < 3) {
+                        mpLog(`Room ID collision, retrying with new code...`, 'info');
+                        peerRef.current?.destroy();
+                        peerRef.current = null;
+                        setTimeout(() => handleCreateRoom(undefined, attempt + 1), 500);
+                    }
+                } else {
+                    setStatusMsg(`SERVER_ERR: ${err.type}`);
+                }
             });
 
             peerRef.current.on('open', (id) => {
@@ -158,7 +172,8 @@ export function useMultiplayer({
                     }
                 });
 
-                conn.on('data', (data: any) => {
+                conn.on('data', (rawData: unknown) => {
+                    const data = rawData as Record<string, any>;
                     if (data.type === 'join') {
                         mpLog(`Player ${data.name} joined squad`, 'success');
                         setSquad((prev) => {
@@ -220,7 +235,13 @@ export function useMultiplayer({
     };
 
     const handleJoinRoom = (code: string) => {
-        if (code.length !== 4) return;
+        if (code.length !== 4) {
+            mpLog(`Invalid room code length: ${code.length} (expected 4)`, 'error');
+            return;
+        }
+        
+        mpLog(`=== ROOM JOIN ===\nRoom Code: ${code}\nPlayer Name: ${playerName}`, 'info');
+        
         setIsHost(false);
         setActiveRoom(code);
         setStatusMsg('LINKING...');
@@ -239,6 +260,7 @@ export function useMultiplayer({
             peerRef.current.on('open', (id) => {
                 mpLog(`Client Peer Created: ${id}. Locating Host...`, 'info');
                 const hostId = getPeerId('SCTR', code);
+                mpLog(`Attempting to connect to host: ${hostId}`, 'info');
                 connectToHostWithRetry(hostId, 0);
             });
         } catch (e: any) {
@@ -249,7 +271,7 @@ export function useMultiplayer({
     const connectToHostWithRetry = (hostId: string, attempt: number) => {
         if (!peerRef.current) return;
 
-        const MAX_ATTEMPTS = 5;
+        const MAX_ATTEMPTS = 10;
         const BASE_DELAY = 1000;
 
         if (attempt >= MAX_ATTEMPTS) {
@@ -259,9 +281,10 @@ export function useMultiplayer({
         }
 
         setStatusMsg(attempt === 0 ? 'LINKING...' : `RETRYING (${attempt + 1}/${MAX_ATTEMPTS})...`);
-        mpLog(`Connecting to Host: ${hostId} (Attempt ${attempt + 1})...`, 'info');
+        mpLog(`Connecting to Host: ${hostId} (Attempt ${attempt + 1}/${MAX_ATTEMPTS})...`, 'info');
 
         const conn = peerRef.current.connect(hostId, { reliable: true });
+        mpLog(`Created connection object to ${hostId}`, 'info');
 
         // Set a timeout to verify connection
         const timeoutId = setTimeout(() => {
@@ -272,13 +295,16 @@ export function useMultiplayer({
                 const delay = BASE_DELAY * Math.pow(1.5, attempt); // Exponential backoff
                 setTimeout(() => connectToHostWithRetry(hostId, attempt + 1), delay);
             }
-        }, 15000); // 15s timeout per attempt (ICE gathering can take 5-10s)
+        }, 8000); // 8s timeout per attempt (ICE gathering can take 5-10s)
 
         conn.on('error', (err) => {
             clearTimeout(timeoutId);
+            conn.close();
             console.error('[Multiplayer] Connection error:', err);
-            mpLog(`CONN_ERR: ${err.type} - ${err.message}`, 'error');
+            mpLog(`CONN_ERR: ${err.type} - ${err.message} — retrying...`, 'error');
             setStatusMsg('LINK_FAILED'); // Will be overwritten by retry or timeout
+            const delay = BASE_DELAY * Math.pow(1.5, attempt);
+            setTimeout(() => connectToHostWithRetry(hostId, attempt + 1), delay);
         });
 
         conn.on('open', () => {
@@ -286,7 +312,10 @@ export function useMultiplayer({
             mpLog('Connection to Host OPEN! Sending Join Request...', 'success');
             connections.current = [conn];
             setStatusMsg('CONNECTED');
-            conn.send({ type: 'join', name: playerName, team: 'bravo' });
+            
+            const joinData = { type: 'join', name: playerName, team: 'bravo' };
+            mpLog(`Sending join packet: ${JSON.stringify(joinData)}`, 'info');
+            conn.send(joinData);
 
             // @ts-ignore
             const pc = conn.peerConnection as RTCPeerConnection;
@@ -299,7 +328,8 @@ export function useMultiplayer({
             }
         });
 
-        conn.on('data', (data: any) => {
+        conn.on('data', (rawData: unknown) => {
+            const data = rawData as Record<string, any>;
             if (data.type === 'sync_squad' || data.type === 'welcome') {
                 if (data.type === 'welcome') mpLog('Joined Squad Successfully', 'success');
                 setSquad(data.squad);
@@ -369,15 +399,45 @@ export function useMultiplayer({
         }
     };
 
-    const initiateStart = (config: any) => {
+    const initiateStart = (config: MPConfig) => {
         if (!isHost || !activeRoom) return;
-        mpLog('Broadcasting Game Start...', 'info');
-        connections.current.forEach(c => c.send({
-            type: 'start',
-            squad: squadRef.current,
-            mpConfig: config
-        }));
-        onGameStart(activeRoom, true, squadRef.current, config);
+        mpLog('Creating host game peer before broadcast...', 'info');
+
+        createGamePeer(activeRoom)
+            .then(({ peer, hostPeerId }) => {
+                mpLog(`Game peer ready: ${hostPeerId}`, 'success');
+
+                // Stash the open peer for MainScene so the host doesn't have to
+                // recreate it while clients are already trying to connect.
+                if (typeof window !== 'undefined') {
+                    (window as any).__mpGamePeer = peer;
+                    (window as any).__pendingGameConnections = [];
+                    peer.on('connection', (conn) => {
+                        (window as any).__pendingGameConnections.push(conn);
+                    });
+                }
+
+                const startConfig = { ...config, hostPeerId };
+
+                mpLog('Broadcasting Game Start to squad...', 'info');
+                connections.current.forEach(c => {
+                    if (c.open) c.send({
+                        type: 'start',
+                        squad: squadRef.current,
+                        mpConfig: startConfig
+                    });
+                });
+
+                // Give the start packet a moment to leave the data channel, then
+                // the host transitions into the game.
+                setTimeout(() => {
+                    mpLog('Host launching game...', 'info');
+                    onGameStart(activeRoom, true, squadRef.current, startConfig);
+                }, 1200);
+            })
+            .catch((err) => {
+                mpLog(`Failed to create game peer: ${err?.message || err?.type || err}`, 'error');
+            });
     };
 
     return {

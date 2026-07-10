@@ -31,9 +31,9 @@ export default async function handler(request: Request) {
         const pipeline = redis.pipeline();
         for (const p of periods) {
             // Only add if not already exists in the general and mode-specific leaderboards
-            pipeline.zadd(K.LB_SCORE(p), { nx: true }, 0, address);
-            pipeline.zadd(K.LB_PVP(p), { nx: true }, 0, address);
-            pipeline.zadd(K.LB_PVE(p), { nx: true }, 0, address);
+            pipeline.zadd(K.LB_SCORE(p), { nx: true }, { score: 0, member: address });
+            pipeline.zadd(K.LB_PVP(p), { nx: true }, { score: 0, member: address });
+            pipeline.zadd(K.LB_PVE(p), { nx: true }, { score: 0, member: address });
             
             const statsKey = K.STATS_HASH(p, address);
             // Ensure basic info exists

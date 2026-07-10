@@ -1,6 +1,6 @@
 
 import { redis, K } from '../utils/redis';
-import { createWalletClient, createPublicClient, http, encodeFunctionData, Chain } from 'viem';
+import { createWalletClient, createPublicClient, http, encodeFunctionData, Chain, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, celo } from 'viem/chains';
 
@@ -41,7 +41,7 @@ const MILITIA_ABI = [
       { name: 'player', type: 'address' as const },
       { name: 'kills', type: 'uint256' as const },
       { name: 'wins', type: 'uint256' as const },
-      { name: 'mode', type: 'string' as const },
+      { name: 'isPvp', type: 'bool' as const },
     ],
     outputs: [],
   },
@@ -65,8 +65,16 @@ export default async function handler(request: Request) {
   }
 
   try {
-    const body = await request.json();
-    const { action, player, username, kills, wins, mode, chainType } = body;
+    const body = await request.json() as {
+      action: string;
+      player: string;
+      username?: string;
+      kills?: number;
+      wins?: number;
+      isPvp?: boolean;
+      chainType?: string;
+    };
+    const { action, player, username, kills, wins, isPvp, chainType } = body;
 
     const isCelo = chainType === 'celo';
     const targetChain: Chain = isCelo ? celo : base;
@@ -90,9 +98,13 @@ export default async function handler(request: Request) {
 
     const walletClient = createWalletClient({
       account,
-      chain: targetChain,
       transport: http(targetRpc),
     });
+
+    // viem 2.48 EIP-7702 overloads added authorizationList as required in some
+    // generic paths. This helper bypasses that TS constraint; runtime is correct.
+    const writeRelayed = (params: Record<string, unknown>) =>
+      (walletClient.writeContract as (p: unknown) => Promise<`0x${string}`>)(params);
 
     let hash: string;
 
@@ -115,13 +127,13 @@ export default async function handler(request: Request) {
         });
 
         // Send the real transaction
-        hash = await walletClient.writeContract({
+        hash = await writeRelayed({
           address: targetContract,
           abi: MILITIA_ABI,
           functionName: 'registerPlayer',
           args: [player as `0x${string}`, username],
           gas: 200000n,
-          chain: targetChain, // Explicitly provide chain to satisfy TS
+          chain: targetChain,
         });
 
         console.log(`[Relay] ✅ registerPlayer TX sent! Hash: ${hash}`);
@@ -143,7 +155,7 @@ export default async function handler(request: Request) {
     } else if (action === 'recordMatch') {
       const k = kills || 0;
       const w = wins || 0;
-      const m = mode || 'pve';
+      const pvp = isPvp ?? false;
 
       try {
         // Simulate first
@@ -151,30 +163,30 @@ export default async function handler(request: Request) {
           address: targetContract,
           abi: MILITIA_ABI,
           functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), m],
+          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
           account,
         });
 
         // Send the real transaction
-        hash = await walletClient.writeContract({
+        hash = await writeRelayed({
           address: targetContract,
           abi: MILITIA_ABI,
           functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), m],
+          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
           gas: 250000n,
           chain: targetChain,
         });
 
-        console.log(`[Relay] ✅ recordMatchResult TX sent! Hash: ${hash} | K:${k} W:${w} M:${m}`);
+        console.log(`[Relay] ✅ recordMatchResult TX sent! Hash: ${hash} | K:${k} W:${w} PvP:${pvp}`);
 
       } catch (err: any) {
         const msg = err?.message || '';
-        if (msg.includes('PLAYER_NOT_REGISTERED')) {
+        if (msg.includes('PlayerNotRegistered') || msg.includes('PLAYER_NOT_REGISTERED')) {
           // Auto-register first, then record
           console.log(`[Relay] Player not registered, auto-registering...`);
           const regUsername = username || `OP_${player.slice(0, 6)}`;
           
-          const regHash = await walletClient.writeContract({
+          const regHash = await writeRelayed({
             address: targetContract,
             abi: MILITIA_ABI,
             functionName: 'registerPlayer',
@@ -188,11 +200,11 @@ export default async function handler(request: Request) {
           await publicClient.waitForTransactionReceipt({ hash: regHash });
 
           // Now record the match
-          hash = await walletClient.writeContract({
+          hash = await writeRelayed({
             address: targetContract,
             abi: MILITIA_ABI,
             functionName: 'recordMatchResult',
-            args: [player as `0x${string}`, BigInt(k), BigInt(w), m],
+            args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
             gas: 250000n,
             chain: targetChain,
           });
@@ -217,7 +229,7 @@ export default async function handler(request: Request) {
       const pipeline = redis.pipeline();
       const periods = ['alltime', `daily:${ymd}`, `monthly:${ymd.substring(0, 6)}`];
       for (const p of periods) {
-        pipeline.zadd(K.LB_SCORE(p), { nx: true }, 0, player);
+        pipeline.zadd(K.LB_SCORE(p), { nx: true }, { score: 0, member: player });
         pipeline.hset(K.STATS_HASH(p, player), { username, registered: Date.now() });
       }
       await pipeline.exec();

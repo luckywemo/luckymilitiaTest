@@ -214,13 +214,12 @@ export function useBlockchainStats() {
   }, [isConnected]);
 
   // ── SYNC STATS (end of match — writes to contract + Redis) ──
-  const syncStats = useCallback(async (kills: number, wins: number, mode?: string, silent: boolean = false) => {
+  const syncStats = useCallback(async (kills: number, wins: number, isPvp: boolean = false, silent: boolean = false) => {
     try {
       const walletAddress = activeAddress || `guest:${storage.getItem('lm_username') || 'ROOKIE'}`;
       const username = storage.getItem('lm_username') || 'ROOKIE';
-      const gameMode = mode || 'pve';
 
-      console.log(`[Sync] Sending stats for ${walletAddress} (${chainName}) | K:${kills} W:${wins} M:${gameMode} | Silent: ${silent}`);
+      console.log(`[Sync] Sending stats for ${walletAddress} (${chainName}) | K:${kills} W:${wins} PvP:${isPvp} | Silent: ${silent}`);
 
       // ─── PATH A: MiniPay or Sequence → Backend Relay ───
       if ((onMiniPay && miniPayAddr) || (CONTRACT_LIVE && isConnected && address)) {
@@ -236,7 +235,7 @@ export function useBlockchainStats() {
               username: storage.getItem('lm_username') || undefined,
               kills,
               wins,
-              mode: gameMode,
+              isPvp,
               chainType,
             })
           });
@@ -247,10 +246,11 @@ export function useBlockchainStats() {
           } else if (relayData.success) {
             console.log(`[Sync] ✅ ${relayData.note || 'Stats synced'}`);
           } else {
-            console.warn('[Sync] ❌ Relay failed:', relayData);
+            throw new Error(`Relay failed: ${JSON.stringify(relayData)}`);
           }
         } catch (contractErr: any) {
           console.error('[Sync] ❌ Relay sync failed!', contractErr);
+          throw contractErr;
         }
       }
 
@@ -262,7 +262,7 @@ export function useBlockchainStats() {
           kills,
           wins,
           username,
-          mode: gameMode,
+          mode: isPvp ? 'multiplayer' : 'pve',
           chain: chainName
         }),
         headers: { 'Content-Type': 'application/json' }

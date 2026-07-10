@@ -1,37 +1,13 @@
 import Phaser from 'phaser';
 import Peer, { DataConnection } from 'peerjs';
-import { PEER_CONFIG, getPeerId } from '../../utils/multiplayer';
+import { PEER_CONFIG, getPeerId, mpLog, getStatusFromIceState } from '../../utils/multiplayer';
 import { CharacterClass, MissionConfig, MPConfig } from '../../App';
+import { WEAPONS_CONFIG, TEAM_COLORS as teamColors, getWeapon } from '../WeaponSystem';
+import { AISystem } from '../AISystem';
+import type { WeaponConfig, BotData, RemotePlayerData, GameStats, TeamScores, NetworkMessage } from '../types';
 
-export interface WeaponConfig {
-  name: string;
-  fireRate: number;
-  damage: number;
-  recoil: number;
-  bullets: number;
-  spread: number;
-  projectileScale: number;
-  projectileTint: number;
-  maxAmmo: number;
-  isInfinite?: boolean;
-  key: string;
-  icon: string;
-  type: 'kinetic' | 'energy' | 'explosive';
-  category: 'pistol' | 'rifle' | 'heavy';
-  homing?: boolean;
-  speed?: number;
-}
-
-export const WEAPONS_CONFIG: Record<string, WeaponConfig> = {
-  pistol: { name: 'M9 SIDEARM', fireRate: 350, damage: 15, recoil: 150, bullets: 1, spread: 0.02, projectileScale: 0.8, projectileTint: 0xffcc00, maxAmmo: 999, isInfinite: true, key: 'pistol', icon: '🔫', type: 'kinetic', category: 'pistol', speed: 2000 },
-  smg: { name: 'MP5 TACTICAL', fireRate: 100, damage: 10, recoil: 80, bullets: 1, spread: 0.12, projectileScale: 0.6, projectileTint: 0xffaa00, maxAmmo: 45, key: 'smg', icon: '⚔️', type: 'kinetic', category: 'rifle', speed: 2200 },
-  shotgun: { name: '870 BREACHER', fireRate: 900, damage: 20, recoil: 2200, bullets: 8, spread: 0.9, projectileScale: 0.9, projectileTint: 0xff4444, maxAmmo: 8, key: 'shotgun', icon: '🔥', type: 'kinetic', category: 'heavy', speed: 1800 },
-  launcher: { name: 'M32 GL', fireRate: 1500, damage: 80, recoil: 1200, bullets: 1, spread: 0, projectileScale: 2.5, projectileTint: 0xf97316, maxAmmo: 6, key: 'launcher', icon: '🚀', type: 'explosive', category: 'heavy', speed: 1200 },
-  railgun: { name: 'XM-25 RAIL', fireRate: 2000, damage: 150, recoil: 1500, bullets: 1, spread: 0, projectileScale: 4.0, projectileTint: 0x00ffff, maxAmmo: 3, key: 'railgun', icon: '⚡', type: 'energy', category: 'heavy', speed: 4000 },
-  plasma: { name: 'X-ION REPEATER', fireRate: 200, damage: 30, recoil: 200, bullets: 1, spread: 0.05, projectileScale: 1.8, projectileTint: 0xff00ff, maxAmmo: 20, key: 'plasma', icon: '🔮', type: 'energy', category: 'rifle', speed: 1600 }
-};
-
-const teamColors = { alpha: '#f97316', bravo: '#22d3ee' };
+export type { WeaponConfig };
+export { WEAPONS_CONFIG };
 
 export class MainScene extends Phaser.Scene {
   public declare add: Phaser.GameObjects.GameObjectFactory;
@@ -99,7 +75,7 @@ export class MainScene extends Phaser.Scene {
   private nextRnd!: () => number;
   private rndBetween!: (min: number, max: number) => number;
 
-  private teamScores = { alpha: 0, bravo: 0 };
+  private teamScores: TeamScores = { alpha: 0, bravo: 0 };
   private safeZoneTimer = 0;
   private invulnerabilityTimer = 0;
   private spawnPoint = { x: 1000, y: 1000 };
@@ -113,6 +89,9 @@ export class MainScene extends Phaser.Scene {
   private abilityEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private bloodEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
+  private lastSyncTime = 0;
+  private lastBotSyncTime = 0;
+
   // Operation Blackout: New Mission State
   private collectedItems = 0;
   private survivalTimer = 0;
@@ -120,27 +99,51 @@ export class MainScene extends Phaser.Scene {
   private tileHP = new Map<string, number>();
 
   // New Audio & AI Steering State
-  private currentMusic: Phaser.Sound.BaseSound | null = null;
-  private ambientLoops: Phaser.Sound.BaseSound[] = [];
+  private currentMusic: any = null;
+  private ambientLoops: any[] = [];
   private audioInitialized = false;
   private playlist: string[] = ['bg_track_1'];
   private currentTrackIndex: number = 0;
   private botLastPositions: Map<string, { x: number, y: number, time: number }> = new Map();
 
+  private mpLinked = false;
+
+  private shotsFired = 0;
+  private shotsHit = 0;
+  private totalDamageDealt = 0;
+  private missionStartTime = 0;
+  private gamePaused = false;
+  private currentPing = 0;
+  private pingInterval?: Phaser.Time.TimerEvent;
+  private musicMuted = false;
+  private sfxMuted = false;
+  private inCombat = false;
+  private combatFadeTimer = 0;
+
   constructor() {
     super('MainScene');
   }
 
-  init(data: any) {
+  init(data: {
+    playerName: string;
+    characterClass?: CharacterClass;
+    mission?: MissionConfig;
+    mpConfig?: MPConfig;
+    roomId?: string | null;
+    isHost?: boolean;
+    squad?: Array<{ name: string; team: 'alpha' | 'bravo' }>;
+    audioEnabled?: boolean;
+    difficultyModifier?: number;
+  }) {
     this.playerName = data.playerName;
     this.characterClass = data.characterClass || 'STRIKER';
     this.mission = data.mission;
     this.mpConfig = data.mpConfig;
-    this.roomId = data.roomId;
-    this.isHost = data.isHost;
+    this.roomId = data.roomId ?? null;
+    this.isHost = data.isHost ?? false;
 
     if (data.squad) {
-      const myMember = data.squad.find((m: any) => m.name === this.playerName);
+      const myMember = data.squad.find(m => m.name === this.playerName);
       if (myMember) this.playerTeam = myMember.team;
     }
 
@@ -152,6 +155,16 @@ export class MainScene extends Phaser.Scene {
     this.audioEnabled = data.audioEnabled !== undefined ? data.audioEnabled : true;
     this.difficultyModifier = data.difficultyModifier || 1;
     this.teamScores = { alpha: 0, bravo: 0 };
+    this.mpLinked = false;
+    this.shotsFired = 0;
+    this.shotsHit = 0;
+    this.totalDamageDealt = 0;
+    this.currentPing = 0;
+    this.gamePaused = false;
+    this.musicMuted = false;
+    this.sfxMuted = false;
+    this.inCombat = false;
+    this.combatFadeTimer = 0;
     this.kills = 0;
     this.points = 0;
     this.lives = this.mission ? 3 : 999;
@@ -193,6 +206,17 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     window.dispatchEvent(new CustomEvent('SCENE_READY'));
+
+    // Mission start timing for post-mission summaries
+    this.missionStartTime = this.time.now;
+
+    // Register in-game mute / pause controls
+    const onMuteMusic = (e: any) => { if (!this.sys?.isActive?.()) return; this.musicMuted = !!e.detail?.muted; this.updateAudioMute(); };
+    const onMuteSfx = (e: any) => { if (!this.sys?.isActive?.()) return; this.sfxMuted = !!e.detail?.muted; this.updateAudioMute(); };
+    const onPauseGame = (e: any) => { if (!this.sys?.isActive?.()) return; this.setPaused(!!e.detail?.paused); };
+    window.addEventListener('MUTE_MUSIC', onMuteMusic);
+    window.addEventListener('MUTE_SFX', onMuteSfx);
+    window.addEventListener('PAUSE_GAME', onPauseGame);
 
     // Fix browser autoplay restrictions: Resume audio context on first interaction
     this.input.once('pointerdown', () => {
@@ -273,6 +297,12 @@ export class MainScene extends Phaser.Scene {
     this.setupEmitters();
     this.setupPhysics();
 
+    // Warp-in camera effect when the level starts
+    this.cameras.main.fadeIn(1200, 0, 0, 0);
+    this.cameras.main.zoomTo(1.05, 800, 'Sine.easeInOut', true, () => {
+      this.cameras.main.zoomTo(1, 600, 'Sine.easeInOut');
+    });
+
     // Initialize 5-second safe zone at battle start
     this.safeZoneTimer = 5000;
 
@@ -310,7 +340,29 @@ export class MainScene extends Phaser.Scene {
       this.time.addEvent({ delay: 15000, callback: () => this.spawnWeaponBox(), loop: true });
     }
 
-    window.addEventListener('weapon_swap', ((e: CustomEvent) => this.swapWeapon(e.detail.key)) as any);
+    const onWeaponSwap = ((e: CustomEvent) => { if (!this.sys?.isActive?.()) return; this.swapWeapon((e as any).detail?.key); }) as any;
+    window.addEventListener('weapon_swap', onWeaponSwap);
+
+    // Clean up window listeners and network resources when the scene is shut down
+    this.sys.events.once('shutdown', () => {
+      window.removeEventListener('MUTE_MUSIC', onMuteMusic);
+      window.removeEventListener('MUTE_SFX', onMuteSfx);
+      window.removeEventListener('PAUSE_GAME', onPauseGame);
+      window.removeEventListener('weapon_swap', onWeaponSwap);
+
+      if (this.pingInterval) {
+        this.pingInterval.remove();
+        this.pingInterval = undefined;
+      }
+      this.connections.forEach(c => c.close());
+      this.connections.clear();
+      if (this.peer) {
+        this.peer.destroy();
+        this.peer = null;
+      }
+      delete (window as any).__mpGamePeer;
+      delete (window as any).__pendingGameConnections;
+    });
 
     // SIGNAL UI: Dismiss loading overlay (with slight delay to ensure listener is active)
     setTimeout(() => {
@@ -320,43 +372,179 @@ export class MainScene extends Phaser.Scene {
 
 
 
+  private startPingInterval() {
+    if (this.pingInterval) return;
+    this.pingInterval = this.time.addEvent({
+      delay: 3000,
+      callback: () => {
+        if (this.connections.size === 0) return;
+        if (!this.isHost) {
+          const host = this.connections.values().next().value as DataConnection | undefined;
+          if (host?.open) host.send({ type: 'ping', t: Date.now() });
+        }
+      },
+      loop: true
+    });
+  }
+
+  private emitMpStatus(state: 'connecting' | 'connected' | 'failed' | 'lost', message: string) {
+    window.dispatchEvent(new CustomEvent('MP_CONNECTION_STATUS', {
+      detail: {
+        state,
+        message,
+        isHost: this.isHost,
+        peerCount: this.connections.size,
+        linked: this.mpLinked,
+      }
+    }));
+    this.updateConnectionStatus(message, state === 'connected' ? '#00ff00' : state === 'failed' || state === 'lost' ? '#ff0000' : '#ffff00');
+  }
+
+  private markMpLinked(message: string) {
+    if (this.mpLinked) return;
+    this.mpLinked = true;
+    this.emitMpStatus('connected', message);
+  }
+
+  public retryMultiplayerConnection() {
+    if (this.isHost || !this.roomId) return;
+    this.mpLinked = false;
+    this.connections.forEach(c => c.close());
+    this.connections.clear();
+    this.emitMpStatus('connecting', 'RECONNECTING TO HOST...');
+    const targetPeerId = this.mpConfig?.hostPeerId || getPeerId('GAME', this.roomId!);
+    this.connectToHostWithRetry(0, targetPeerId);
+  }
+
+  private completeMission(detail: { failed?: boolean; winner?: string; reason?: string } = {}) {
+    if (this.isMissionOver) return;
+    this.isMissionOver = true;
+
+    if (this.player?.body) {
+      this.player.body.stop();
+      this.player.body.enable = false;
+    }
+
+    this.physics.world.pause();
+    this.scene.pause();
+
+    this.ambientLoops.forEach(s => s?.stop());
+    if (this.currentMusic) this.currentMusic.stop();
+
+    this.updateGameStatsObj();
+
+    if (!detail.failed) {
+      this.playSound('sfx_victory', 0.4, false);
+    }
+
+    const payload: any = { kills: this.kills, points: this.points };
+    if (detail.failed) {
+      payload.failed = true;
+      if (detail.reason) payload.reason = detail.reason;
+    }
+    if (detail.winner) {
+      payload.winner = detail.winner;
+      payload.alpha = this.teamScores.alpha;
+      payload.bravo = this.teamScores.bravo;
+    }
+    window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: payload }));
+
+    if (this.isHost && this.roomId && detail.winner) {
+      this.broadcast({ type: 'game_over', winner: detail.winner! });
+    }
+  }
+
+  private broadcast(data: any, excludePeer?: string) {
+    this.connections.forEach(c => {
+      if (c.open && c.peer !== excludePeer) c.send(data);
+    });
+  }
+
   private initMultiplayer() {
+    this.emitMpStatus('connecting', this.isHost ? 'INITIALIZING HOST UPLINK...' : 'SEARCHING FOR HOST...');
+
+    // Enhanced debugging for multiplayer connection
+    mpLog(`=== MULTIPLAYER INIT ===\nRole: ${this.isHost ? 'HOST' : 'CLIENT'}\nRoomId: ${this.roomId}\nPeerConfig: ${JSON.stringify(PEER_CONFIG.host)}`, 'info');
+
+    const gamePeerId = this.mpConfig?.hostPeerId || getPeerId('GAME', this.roomId!);
+
     if (this.isHost) {
-      // Host creates a GAME peer with a different ID pattern to avoid conflict with Lobby peer
-      this.updateConnectionStatus('INITIALIZING HOST...', '#ffff00');
-      const gamePeerId = getPeerId('GAME', this.roomId!);
-      console.log('[MainScene] Host creating game peer:', gamePeerId);
-      this.peer = new Peer(gamePeerId, PEER_CONFIG);
+      // Try to take over the peer pre-created by the lobby so clients can start
+      // connecting immediately instead of racing the host's MainScene creation.
+      const preCreated = (typeof window !== 'undefined') ? (window as any).__mpGamePeer as Peer | undefined : undefined;
+      if (preCreated && preCreated.id === gamePeerId) {
+        this.peer = preCreated;
+        delete (window as any).__mpGamePeer;
+        mpLog(`Host reusing pre-created game peer: ${this.peer.id}`, 'info');
+        this.peer.removeAllListeners('open');
+        this.peer.removeAllListeners('error');
+        this.peer.removeAllListeners('connection');
+        this.markMpLinked('HOST UPLINK ACTIVE');
+        this.peer.on('error', (err) => {
+          mpLog(`Host peer error: ${err.type} - ${err.message}`, 'error');
+          console.error('[MainScene] Host peer error:', err);
+          this.updateConnectionStatus(`HOST ERROR: ${err.type}`, '#ff0000');
+        });
+        this.peer.on('connection', (conn) => {
+          mpLog(`Host received connection from: ${conn.peer}`, 'success');
+          console.log('[MainScene] Host received game connection from:', conn.peer);
+          this.handleConnection(conn);
+        });
 
-      this.peer.on('open', (id) => {
-        console.log('[MainScene] Host game peer ready:', id);
-        this.updateConnectionStatus('HOST READY: WAITING FOR PLAYERS', '#00ff00');
-      });
+        // Drain any connections that arrived before this scene was mounted
+        const pending = (typeof window !== 'undefined') ? (window as any).__pendingGameConnections as DataConnection[] | undefined : undefined;
+        if (pending) {
+          delete (window as any).__pendingGameConnections;
+          pending.forEach(conn => this.handleConnection(conn));
+        }
+        const peerConns = (this.peer as any).connections;
+        if (peerConns) {
+          Object.values(peerConns).flat().forEach((conn: any) => {
+            if (!this.connections.has(conn.peer)) this.handleConnection(conn);
+          });
+        }
+      } else {
+        mpLog(`Host creating game peer: ${gamePeerId}`, 'info');
+        console.log('[MainScene] Host creating game peer:', gamePeerId);
+        this.peer = new Peer(gamePeerId, PEER_CONFIG);
 
-      this.peer.on('error', (err) => {
-        console.error('[MainScene] Host peer error:', err);
-        this.updateConnectionStatus(`HOST ERROR: ${err.type}`, '#ff0000');
-      });
+        this.peer.on('open', (id) => {
+          mpLog(`Host peer ready: ${id}`, 'success');
+          console.log('[MainScene] Host game peer ready:', id);
+          this.markMpLinked('HOST UPLINK ACTIVE');
+        });
 
-      this.peer.on('connection', (conn) => {
-        console.log('[MainScene] Host received game connection from:', conn.peer);
-        this.handleConnection(conn);
-      });
+        this.peer.on('error', (err) => {
+          mpLog(`Host peer error: ${err.type} - ${err.message}`, 'error');
+          console.error('[MainScene] Host peer error:', err);
+          this.updateConnectionStatus(`HOST ERROR: ${err.type}`, '#ff0000');
+        });
+
+        this.peer.on('connection', (conn) => {
+          mpLog(`Host received connection from: ${conn.peer}`, 'success');
+          console.log('[MainScene] Host received game connection from:', conn.peer);
+          this.handleConnection(conn);
+        });
+      }
     } else {
       // Client creates a peer and connects to the host's GAME peer
-      this.updateConnectionStatus('INITIALIZING CLIENT...', '#ffff00');
-      console.log('[MainScene] Client creating peer to connect to game...');
+      mpLog(`Client creating peer to connect to game peer: ${gamePeerId}`, 'info');
+      console.log('[MainScene] Client creating peer to connect to game:', gamePeerId);
       this.peer = new Peer(PEER_CONFIG);
 
       this.peer.on('open', (id) => {
+        mpLog(`Client peer ready: ${id}`, 'success');
         console.log('[MainScene] Client peer ready:', id);
-        this.updateConnectionStatus('CLIENT READY: CONNECTING TO HOST...', '#ffff00');
+        this.emitMpStatus('connecting', 'CONNECTING TO HOST...');
         if (this.roomId) {
-          this.connectToHostWithRetry(0);
+          this.connectToHostWithRetry(0, gamePeerId);
+        } else {
+          mpLog('ERROR: No roomId provided for client connection', 'error');
         }
       });
 
       this.peer.on('error', (err) => {
+        mpLog(`Client peer error: ${err.type} - ${err.message}`, 'error');
         console.error('[MainScene] Client peer error:', err);
         this.updateConnectionStatus(`PEER ERROR: ${err.type}`, '#ff0000');
       });
@@ -365,48 +553,50 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private connectToHostWithRetry(attempt: number) {
-    const maxAttempts = 5;
-    const baseDelay = 1000; // 1 second
+  private connectToHostWithRetry(attempt: number, targetPeerId: string) {
+    const maxAttempts = 10;
+    const baseDelay = 1000;
 
     if (attempt >= maxAttempts) {
+      mpLog(`Connection failed after ${maxAttempts} attempts. Giving up.`, 'error');
       console.error('[MainScene] Failed to connect after', maxAttempts, 'attempts');
-      this.updateConnectionStatus('CONNECTION FAILED (TIMEOUT)', '#ff0000');
+      this.emitMpStatus('failed', 'HOST UPLINK FAILED');
       return;
     }
 
-    const gamePeerId = getPeerId('GAME', this.roomId!);
+    const gamePeerId = targetPeerId;
+    mpLog(`Connecting to host (attempt ${attempt + 1}/${maxAttempts}): ${gamePeerId}`, 'info');
     console.log(`[MainScene] Client connecting to host (attempt ${attempt + 1}/${maxAttempts}):`, gamePeerId);
     this.updateConnectionStatus(`CONNECTING TO HOST (ATTEMPT ${attempt + 1})...`, '#ffff00');
 
     const conn = this.peer!.connect(gamePeerId, { reliable: true });
+    mpLog(`Created connection object to ${gamePeerId}`, 'info');
 
-    // Set a timeout to check if connection opened
     const connectionTimeout = setTimeout(() => {
       if (!this.connections.has(conn.peer)) {
+        mpLog(`Connection attempt ${attempt + 1} timed out (no open event)`, 'error');
         console.log('[MainScene] Connection timeout, retrying...');
-        const delay = baseDelay * Math.pow(2, attempt);
+        const delay = baseDelay * Math.pow(1.5, attempt);
         this.updateConnectionStatus(`TIMEOUT. RETRYING IN ${delay}ms...`, '#ffaa00');
-        setTimeout(() => this.connectToHostWithRetry(attempt + 1), delay);
+        mpLog(`Scheduling retry ${attempt + 2} in ${delay}ms`, 'info');
+        setTimeout(() => this.connectToHostWithRetry(attempt + 1, targetPeerId), delay);
       }
-    }, 15000); // Increased timeout for cross-region signaling
+    }, 8000);
 
     conn.on('open', () => {
       clearTimeout(connectionTimeout);
+      mpLog(`Successfully connected to host on attempt ${attempt + 1}`, 'success');
       console.log('[MainScene] Successfully connected to host on attempt', attempt + 1);
-      this.updateConnectionStatus('CONNECTED TO HOST', '#00ff00');
+      this.emitMpStatus('connecting', 'SYNCING BATTLEFIELD...');
       this.handleConnection(conn);
-
-      // Hide label after successful connection + 3s
-      this.time.delayedCall(3000, () => {
-        if (this.connectionLabel) this.connectionLabel.setVisible(false);
-      });
     });
 
     // Helper to log low-level ICE state
     if (conn.peerConnection) {
       conn.peerConnection.oniceconnectionstatechange = () => {
         const state = conn.peerConnection.iceConnectionState;
+        const statusMsg = getStatusFromIceState(state);
+        mpLog(`ICE State: ${state} - ${statusMsg}`, state === 'failed' ? 'error' : 'info');
         console.log(`[ICE STATE] ${state}`);
         if (state === 'checking') {
           this.updateConnectionStatus('NAT TRAVERSAL (CHECKING)...', '#00ffff');
@@ -421,16 +611,21 @@ export class MainScene extends Phaser.Scene {
 
     conn.on('error', (err) => {
       clearTimeout(connectionTimeout);
+      conn.close();
+      mpLog(`Connection error: ${err.type} - ${err.message}`, 'error');
       console.error('[MainScene] Connection error:', err);
-      const delay = baseDelay * Math.pow(2, attempt);
+      const delay = baseDelay * Math.pow(1.5, attempt);
       this.updateConnectionStatus(`CONN ERROR. RETRYING...`, '#ff0000');
-      setTimeout(() => this.connectToHostWithRetry(attempt + 1), delay);
+      mpLog(`Scheduling retry ${attempt + 2} in ${delay}ms due to error`, 'info');
+      setTimeout(() => this.connectToHostWithRetry(attempt + 1, targetPeerId), delay);
     });
   }
 
   private handleConnection(conn: DataConnection) {
     const setupConn = () => {
+      mpLog(`Connection established with ${conn.peer}. Setting up data sync...`, 'success');
       this.connections.set(conn.peer, conn);
+      this.startPingInterval();
       if (this.isHost) {
         const botData = this.aiBots.getChildren().map((bot: any) => ({
           id: bot.getData('id'),
@@ -440,7 +635,11 @@ export class MainScene extends Phaser.Scene {
         const luckData = this.luckBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
         const weaponData = this.weaponBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
         const itemData = this.weaponItems.getChildren().map((i: any) => ({ id: i.getData('id'), x: i.x, y: i.y, weaponKey: i.getData('weaponKey') }));
-        conn.send({ type: 'initial_sync', bots: botData, luckBoxes: luckData, weaponBoxes: weaponData, itemData, scores: this.teamScores });
+        
+        const syncData = { type: 'initial_sync', bots: botData, luckBoxes: luckData, weaponBoxes: weaponData, itemData, scores: this.teamScores };
+        mpLog(`Sending initial sync to ${conn.peer}: ${botData.length} bots, scores: ${JSON.stringify(this.teamScores)}`, 'info');
+        if (conn.open) conn.send(syncData);
+        this.emitMpStatus('connected', `HOST UPLINK ACTIVE (${this.connections.size} PEERS)`);
       }
     };
 
@@ -451,12 +650,26 @@ export class MainScene extends Phaser.Scene {
     }
 
     conn.on('data', (data: any) => {
+      mpLog(`Received message from ${conn.peer}: ${data.type}`, 'info');
+
+      if (data.type === 'ping' && this.isHost) {
+        conn.send({ type: 'pong', t: data.t });
+        return;
+      }
+      if (data.type === 'pong' && !this.isHost) {
+        this.currentPing = Math.max(1, Math.floor((Date.now() - data.t) / 2));
+        return;
+      }
+
       if (data.type === 'sync') this.syncRemotePlayer(conn.peer, data);
       else if (data.type === 'fire') {
         this.spawnBullet(data.x, data.y, data.angle, data.weaponKey, conn.peer, data.team);
-        if (this.isHost) this.connections.forEach(c => { if (c.peer !== conn.peer) c.send(data); });
+        if (this.isHost) this.broadcast(data, conn.peer);
       }
-      else if (data.type === 'score_update') this.teamScores = data.scores;
+      else if (data.type === 'score_update') {
+        mpLog(`Score update received: ${JSON.stringify(data.scores)}`, 'info');
+        this.teamScores = data.scores;
+      }
       else if (data.type === 'hp_move') this.moveHardpoint(data.x, data.y);
       else if (data.type === 'spawn_bot') this.createRemoteBot(data);
       else if (data.type === 'spawn_box') this.createRemoteBox(data);
@@ -464,47 +677,60 @@ export class MainScene extends Phaser.Scene {
       else if (data.type === 'destroy_object') this.destroyRemoteObject(data);
       else if (data.type === 'bot_sync') this.syncBots(data.bots);
       else if (data.type === 'game_over') {
-        this.isMissionOver = true;
-        this.playSound('sfx_victory', 0.4, false);
-        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner: data.winner, kills: this.kills, points: this.points } }));
+        this.completeMission({ winner: data.winner });
       }
       else if (data.type === 'initial_sync') {
+        mpLog(`Initial sync received: ${data.bots?.length || 0} bots, scores: ${JSON.stringify(data.scores)}`, 'success');
         this.teamScores = data.scores;
         data.bots.forEach((b: any) => this.createRemoteBot(b));
         data.luckBoxes.forEach((b: any) => this.createRemoteBox({ ...b, boxType: 'luck' }));
         data.weaponBoxes.forEach((b: any) => this.createRemoteBox({ ...b, boxType: 'weapon' }));
         if (data.itemData) data.itemData.forEach((i: any) => this.createRemoteItem(i));
+        if (!this.isHost) this.markMpLinked('BATTLEFIELD SYNCED');
       }
     });
 
     conn.on('close', () => {
+      this.connections.delete(conn.peer);
       this.otherPlayers.get(conn.peer)?.destroy();
       this.otherLabels.get(conn.peer)?.destroy();
       this.otherPlayers.delete(conn.peer);
       this.otherLabels.delete(conn.peer);
+
+      if (this.isHost) {
+        this.emitMpStatus('connected', `HOST UPLINK ACTIVE (${this.connections.size} PEERS)`);
+      } else if (this.roomId && this.mpLinked) {
+        this.mpLinked = false;
+        this.emitMpStatus('lost', 'HOST SIGNAL LOST');
+      }
     });
   }
 
   private syncRemotePlayer(id: string, data: any) {
     if (this.isHost) {
-      this.connections.forEach(c => { if (c.peer !== id) c.send({ ...data, id }); });
+      this.broadcast({ ...data, id }, id);
     }
     const targetId = data.id || id;
     let p = this.otherPlayers.get(targetId);
     let l = this.otherLabels.get(targetId);
+    const teamColor = data.team === 'alpha' ? '#f97316' : '#22d3ee';
+    const teamPrefix = data.team === 'alpha' ? '[ALPHA] ' : '[BRAVO] ';
+    const classKey = (data.class || 'striker').toLowerCase();
+    const weaponKey = data.weaponKey && WEAPONS_CONFIG[data.weaponKey] ? data.weaponKey : 'pistol';
+    const textureKey = `hum_${classKey}_${WEAPONS_CONFIG[weaponKey].category}`;
+
     if (!p) {
-      p = this.physics.add.sprite(data.x, data.y, `hum_striker_pistol`);
+      p = this.physics.add.sprite(data.x, data.y, textureKey);
       p.setDepth(9).setData('team', data.team).setCircle(22, 10, 10);
 
       // Init interpolation targets
       p.setData('targetX', data.x);
       p.setData('targetY', data.y);
       p.setData('targetAngle', data.angle);
+      p.setData('weaponKey', weaponKey);
 
       this.otherPlayers.set(targetId, p);
       this.otherPlayersGroup.add(p);
-      const teamColor = data.team === 'alpha' ? '#f97316' : '#22d3ee';
-      const teamPrefix = data.team === 'alpha' ? '[ALPHA] ' : '[BRAVO] ';
       l = this.add.text(data.x, data.y - 60, teamPrefix + data.name, { fontSize: '12px', color: teamColor, fontStyle: 'bold', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(20);
       this.otherLabels.set(targetId, l);
     }
@@ -513,11 +739,20 @@ export class MainScene extends Phaser.Scene {
     p.setData('targetX', data.x);
     p.setData('targetY', data.y);
     p.setData('targetAngle', data.angle);
-    p.setData('targetX', data.x);
-    p.setData('targetY', data.y);
-    p.setData('targetAngle', data.angle);
     p.setData('name', data.name);
     p.setTint(data.team === 'alpha' ? 0xf97316 : 0x22d3ee);
+
+    // Update texture if weapon/class changed
+    if (p.getData('weaponKey') !== weaponKey) {
+      p.setData('weaponKey', weaponKey);
+      p.setTexture(textureKey);
+    }
+
+    // Update name label if changed
+    if (l && l.text !== teamPrefix + data.name) {
+      l.setText(teamPrefix + data.name);
+      l.setColor(teamColor);
+    }
   }
 
   private updateRemotePlayers(delta: number) {
@@ -582,45 +817,71 @@ export class MainScene extends Phaser.Scene {
   }
 
   private initAudio() {
-    if (!this.audioEnabled || this.audioInitialized) return;
+    if (!this.audioEnabled || this.audioInitialized || !this.cache || !this.cache.audio) return;
     this.audioInitialized = true;
 
-    // 1. Initialize Music Playlist
-    this.playNextTrack();
+    // 1. Initialize Music Playlist with ambient volume
+    this.playNextTrack(0.08);
 
     // 2. Setup Ambient Layers (Spatial)
     try {
-        const ambientLoop = this.sound.add('sfx_powerup', { volume: 0.05, loop: true }); 
-        ambientLoop.play();
-        this.ambientLoops.push(ambientLoop);
+        if (this.cache.audio.exists('sfx_powerup')) {
+          const ambientLoop = this.sound.add('sfx_powerup', { volume: 0.05, loop: true });
+          ambientLoop.play();
+          this.ambientLoops.push(ambientLoop);
+        }
     } catch (e) {
         console.warn('[Audio] Ambient loop setup failed:', e);
     }
   }
 
-  private playNextTrack() {
-    if (!this.audioEnabled) return;
+  private playNextTrack(defaultVolume = 0.1) {
+    if (!this.audioEnabled || !this.cache || !this.cache.audio) return;
 
     const trackKey = this.playlist[this.currentTrackIndex];
     if (this.cache.audio.exists(trackKey)) {
         if (this.currentMusic) this.currentMusic.stop();
-        
-        this.currentMusic = this.sound.add(trackKey, { volume: 0.1, loop: false });
+
+        this.currentMusic = this.sound.add(trackKey, { volume: this.musicMuted ? 0 : defaultVolume, loop: false });
         this.currentMusic.play();
         this.currentMusic.once('complete', () => {
             this.currentTrackIndex = (this.currentTrackIndex + 1) % this.playlist.length;
-            this.playNextTrack();
+            this.playNextTrack(defaultVolume);
         });
     }
   }
 
+  private updateAudioMute() {
+    if (this.currentMusic) this.currentMusic.setVolume(this.musicMuted ? 0 : (this.inCombat ? 0.28 : 0.08));
+    this.ambientLoops.forEach(loop => loop?.setVolume(this.sfxMuted ? 0 : 0.05));
+  }
+
+  private updateMusicCrossfade(delta: number) {
+    if (!this.currentMusic || this.musicMuted) return;
+    const target = this.inCombat ? 0.28 : 0.08;
+    const step = (target - this.currentMusic.volume) * Math.min(1, delta * 0.002);
+    this.currentMusic.setVolume(Phaser.Math.Clamp(this.currentMusic.volume + step, 0.08, 0.4));
+  }
+
+  private setPaused(paused: boolean) {
+    if (this.isMissionOver) return;
+    this.gamePaused = paused;
+    if (paused) {
+      this.scene.pause(this.scene.key);
+      this.physics.world.pause();
+    } else {
+      this.scene.resume(this.scene.key);
+      this.physics.world.resume();
+    }
+  }
+
   private playSound(key: string, volume = 0.5, randomizePitch = true) {
-    if (!this.audioEnabled || !this.cache.audio.exists(key)) return;
-    this.sound.play(key, { volume, detune: randomizePitch ? Phaser.Math.Between(-200, 200) : 0 });
+    if (!this.audioEnabled || this.sfxMuted || !this.cache || !this.cache.audio || !this.cache.audio.exists(key)) return;
+    this.sound?.play(key, { volume, detune: randomizePitch ? Phaser.Math.Between(-200, 200) : 0 });
   }
 
   private playSpatialSound(key: string, sourceX: number, sourceY: number, baseVolume = 0.5, randomizePitch = true) {
-    if (!this.audioEnabled || !this.cache.audio.exists(key) || !this.player) return;
+    if (!this.audioEnabled || this.sfxMuted || !this.cache || !this.cache.audio || !this.cache.audio.exists(key) || !this.player) return;
     
     // Calculate Distance for Volume Attenuation
     const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, sourceX, sourceY);
@@ -737,7 +998,7 @@ export class MainScene extends Phaser.Scene {
 
     this.physics.add.overlap(this.player, this.bullets, (p: any, b: any) => {
       if (b.getData('team') !== this.playerTeam) {
-        this.takeDamage(b.getData('damage'));
+        this.takeDamage(b.getData('damage'), b.rotation);
         this.createExplosion(b.x, b.y, 4, 0xff0000);
         b.setActive(false).setVisible(false).body.stop();
       }
@@ -752,12 +1013,22 @@ export class MainScene extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.isMissionOver) return;
 
+    const mpReady = !this.roomId || this.isHost || this.mpLinked;
+    if (!mpReady) {
+      this.updateHUD();
+      return;
+    }
+
     if (!this.isRespawning) {
       this.handleInput();
       this.handleCombat(time);
       this.resolveUnitOverlaps();
 
       if (this.abilityCooldown > 0) this.abilityCooldown -= delta;
+      if (this.combatFadeTimer > 0) this.combatFadeTimer -= delta;
+      else this.inCombat = false;
+
+      this.updateMusicCrossfade(delta);
 
       // Update Survival Timer
       if (this.mission && this.mission.type === 'SURVIVAL') {
@@ -790,18 +1061,33 @@ export class MainScene extends Phaser.Scene {
       //    this.playerLight.y = this.player.y;
       // }
 
-      if (this.roomId && time % 50 < 10) {
-        this.connections.forEach(c => c.send({ type: 'sync', x: this.player.x, y: this.player.y, angle: this.player.rotation, name: this.playerName, team: this.playerTeam }));
+      if (this.roomId && time - this.lastSyncTime >= 50) {
+        this.lastSyncTime = time;
+        const syncData = {
+          type: 'sync',
+          x: this.player.x, y: this.player.y, angle: this.player.rotation,
+          name: this.playerName, team: this.playerTeam,
+          weaponKey: this.currentWeapon.key, class: this.characterClass
+        };
+        this.connections.forEach(c => {
+          if (c.open) {
+            c.send(syncData);
+          }
+        });
       }
 
-
-      if (this.isHost && this.roomId && time % 100 < 10) {
+      if (this.isHost && this.roomId && time - this.lastBotSyncTime >= 100) {
+        this.lastBotSyncTime = time;
         const botData = this.aiBots.getChildren().map((bot: any) => ({
           id: bot.getData('id'),
           x: bot.x, y: bot.y, angle: bot.rotation,
           weaponKey: bot.getData('weaponKey'), team: bot.getData('team')
         }));
-        this.connections.forEach(c => c.send({ type: 'bot_sync', bots: botData }));
+        this.connections.forEach(c => {
+          if (c.open) {
+            c.send({ type: 'bot_sync', bots: botData });
+          }
+        });
       }
     }
 
@@ -837,21 +1123,14 @@ export class MainScene extends Phaser.Scene {
       }
 
       if (victory) {
-        this.isMissionOver = true;
-        this.player.body.stop();
-        this.player.body.enable = false;
-        this.playSound('sfx_victory', 0.4, false);
-        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { kills: this.kills, points: this.points } }));
+        this.completeMission({});
       }
     }
 
     if (this.mpConfig && this.isHost && !this.isMissionOver) {
       if (this.teamScores.alpha >= this.mpConfig.scoreLimit || this.teamScores.bravo >= this.mpConfig.scoreLimit) {
-        this.isMissionOver = true;
         const winner = this.teamScores.alpha >= this.mpConfig.scoreLimit ? 'ALPHA' : 'BRAVO';
-        this.playSound('sfx_victory', 0.4, false);
-        if (this.roomId) this.connections.forEach(c => c.send({ type: 'game_over', winner }));
-        window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { winner, alpha: this.teamScores.alpha, bravo: this.teamScores.bravo, kills: this.kills, points: this.points } }));
+        this.completeMission({ winner });
       }
     }
   }
@@ -878,8 +1157,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private getGameStats() {
-    // Helper to return current state for HUD
+  private getGameStats(): GameStats {
     return {
       hp: this.health,
       maxHp: this.maxHealth,
@@ -896,12 +1174,25 @@ export class MainScene extends Phaser.Scene {
       teamScores: this.teamScores,
       mode: this.mission ? this.mission.type : 'MULTIPLAYER',
       isOver: this.isMissionOver,
+      isPaused: this.gamePaused,
+      weaponMode: `${this.currentWeapon.category} // ${this.currentWeapon.type}`,
+      abilityMaxCooldown: 6000,
       playerPos: { x: this.player.x, y: this.player.y, rotation: this.player.rotation },
       entities: this.getMinimapEntities(),
       lives: this.lives,
       maxLives: this.maxLives,
       survivalTimer: Math.ceil(this.survivalTimer),
-      collectedItems: this.collectedItems
+      collectedItems: this.collectedItems,
+      shotsFired: this.shotsFired,
+      shotsHit: this.shotsHit,
+      missionTime: this.mission ? Math.floor((this.time.now - this.missionStartTime) / 1000) : 0,
+      missionStarted: this.missionStartTime > 0,
+      ping: this.currentPing,
+      mpPeerCount: this.connections.size,
+      items: this.getWorldItems(),
+      objectives: this.getObjectives(),
+      musicMuted: this.musicMuted,
+      sfxMuted: this.sfxMuted
     };
   }
 
@@ -909,7 +1200,27 @@ export class MainScene extends Phaser.Scene {
     (window as any).gameStats = this.getGameStats();
   }
 
-  private getMinimapEntities() {
+  private getWorldItems(): import('../types').WorldItem[] {
+    const items: import('../types').WorldItem[] = [];
+    this.luckBoxes.getChildren().forEach((b: any) => { if (b.active) items.push({ x: b.x, y: b.y, type: 'luck' }); });
+    this.weaponBoxes.getChildren().forEach((b: any) => { if (b.active) items.push({ x: b.x, y: b.y, type: 'weapon' }); });
+    this.weaponItems.getChildren().forEach((i: any) => { if (i.active) items.push({ x: i.x, y: i.y, type: 'weapon_drop' }); });
+    this.dataDrives.getChildren().forEach((d: any) => { if (d.active) items.push({ x: d.x, y: d.y, type: 'intel' }); });
+    return items;
+  }
+
+  private getObjectives(): import('../types').ObjectiveMarker[] {
+    const objs: import('../types').ObjectiveMarker[] = [];
+    if (this.mission?.type === 'EXTRACTION') {
+      this.dataDrives.getChildren().forEach((d: any) => { if (d.active) objs.push({ x: d.x, y: d.y, type: 'extraction' }); });
+    }
+    if (this.mpConfig?.mode === 'HARDPOINT' && this.hardpointZone) {
+      objs.push({ x: this.hardpointCenter.x, y: this.hardpointCenter.y, type: 'hardpoint' });
+    }
+    return objs;
+  }
+
+  private getMinimapEntities(): import('../types').MinimapEntity[] {
     const drives = this.dataDrives ? this.dataDrives.getChildren().filter((d: any) => d.active).map((d: any) => ({ x: d.x, y: d.y, team: 'neutral', type: 'objective' })) : [];
     return [
       ...this.aiBots.getChildren().map((b: any) => ({ x: b.x, y: b.y, team: b.getData('team') })),
@@ -950,6 +1261,9 @@ export class MainScene extends Phaser.Scene {
       }
       const angle = this.virtualInput.aimAngle !== null ? this.virtualInput.aimAngle : this.player.rotation;
       this.muzzleEmitter.emitParticleAt(this.player.x + Math.cos(angle) * 45, this.player.y + Math.sin(angle) * 45, 8);
+      this.shotsFired += this.currentWeapon.bullets;
+      this.inCombat = true;
+      this.combatFadeTimer = 3000;
       for (let i = 0; i < this.currentWeapon.bullets; i++) {
         const spread = (Math.random() - 0.5) * this.currentWeapon.spread;
         this.spawnBullet(this.player.x, this.player.y, angle + spread, this.currentWeapon.key, 'player', this.playerTeam);
@@ -959,7 +1273,7 @@ export class MainScene extends Phaser.Scene {
         const recoilAngle = angle + Math.PI;
         this.physics.velocityFromRotation(recoilAngle, recoilForce * 0.45, this.player.body.velocity);
       }
-      if (this.roomId) this.connections.forEach(c => c.send({ type: 'fire', x: this.player.x, y: this.player.y, angle, weaponKey: this.currentWeapon.key, team: this.playerTeam }));
+      if (this.roomId) this.broadcast({ type: 'fire', x: this.player.x, y: this.player.y, angle, weaponKey: this.currentWeapon.key, team: this.playerTeam });
       this.playSpatialSound(this.currentWeapon.category === 'pistol' ? 'sfx_pistol' : 'sfx_shotgun', this.player.x, this.player.y, 0.4);
       this.lastFired = time + this.currentWeapon.fireRate;
       if (!this.currentWeapon.isInfinite) {
@@ -1009,10 +1323,10 @@ export class MainScene extends Phaser.Scene {
     const label = this.add.text(x, y - 50, teamPrefix + botName, { fontSize: '10px', color: '#' + teamColor.toString(16), fontStyle: 'bold', fontFamily: 'monospace' }).setOrigin(0.5).setDepth(20);
     this.botLabels.set(botId, label);
 
-    if (this.isHost && this.roomId) this.connections.forEach(c => c.send({ type: 'spawn_bot', id: botId, team, x, y, name: botName }));
+    if (this.isHost && this.roomId) this.broadcast({ type: 'spawn_bot', id: botId, team, x, y, name: botName });
   }
 
-  private createRemoteBot(data: any) {
+  private createRemoteBot(data: BotData) {
     if (this.aiBots.getChildren().find((b: any) => b.getData('id') === data.id)) return;
     const bot = this.aiBots.create(data.x, data.y, 'hum_striker_pistol');
     const botName = data.name || `UNIT_${data.id.split('_').pop()}`;
@@ -1054,285 +1368,43 @@ export class MainScene extends Phaser.Scene {
   }
 
   private hasLineOfSight(fromX: number, fromY: number, toX: number, toY: number): boolean {
-    // Create a line from bot to target
-    const ray = new Phaser.Geom.Line(fromX, fromY, toX, toY);
-    // Check if ray intersects any wall tile
-    const wallTiles = this.wallLayer.getTilesWithinShape(ray);
-    for (const tile of wallTiles) {
-      if (tile.index !== -1 && tile.index !== 3) { // 3 is floor, others are walls
-        return false;
-      }
-    }
-    return true; // Clear line of sight
+    return AISystem.hasLineOfSight(this.wallLayer, fromX, fromY, toX, toY);
   }
 
 
   private updateAIBots(time: number) {
     if (!this.isHost) return;
-    if (this.isMissionOver) { this.aiBots.getChildren().forEach((bot: any) => bot.body.stop()); return; }
+    if (this.isMissionOver) {
+      this.aiBots.getChildren().forEach((b) => (b as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody).body.stop());
+      return;
+    }
 
-    this.aiBots.getChildren().forEach((bot: any) => {
-      const team = bot.getData('team');
-      const botHp = bot.getData('hp');
-      const maxHp = bot.getData('maxHp');
-      const healthPercent = botHp / maxHp;
+    this.aiBots.getChildren().forEach((rawBot) => {
+      const bot = rawBot as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
 
-      // 1. FIND TARGETS
-      let nearestTarget: any = null;
-      let minDist = 800;
-
-      // Collect all potential targets
-      if (this.playerTeam !== team) {
-        const d = Phaser.Math.Distance.Between(bot.x, bot.y, this.player.x, this.player.y);
-        if (d < minDist) { nearestTarget = this.player; minDist = d; }
-      }
-
-      this.otherPlayers.forEach(p => {
-        if (p.getData('team') !== team) {
-          const d = Phaser.Math.Distance.Between(bot.x, bot.y, p.x, p.y);
-          if (d < minDist) { nearestTarget = p; minDist = d; }
-        }
+      AISystem.updateBot({
+        scene: this,
+        bot,
+        time,
+        difficultyModifier: this.difficultyModifier,
+        playerTeam: this.playerTeam,
+        player: this.player,
+        otherPlayers: this.otherPlayers,
+        aiBots: this.aiBots,
+        bullets: this.bullets,
+        wallLayer: this.wallLayer,
+        safeZoneTimer: this.safeZoneTimer,
+        isMissionOver: this.isMissionOver,
+        mpConfig: this.mpConfig,
+        hardpointCenter: this.hardpointCenter,
+        botLastPositions: this.botLastPositions,
+        spawnBullet: this.spawnBullet.bind(this),
+        playSpatialSound: this.playSpatialSound.bind(this),
       });
 
-      this.aiBots.getChildren().forEach((otherBot: any) => {
-        if (otherBot !== bot && otherBot.getData('team') !== team) {
-          const d = Phaser.Math.Distance.Between(bot.x, bot.y, otherBot.x, otherBot.y);
-          if (d < minDist) { nearestTarget = otherBot; minDist = d; }
-        }
-      });
-
-      // 2. TACTICAL FORCES
-      let finalForceX = 0;
-      let finalForceY = 0;
-      let moveSpeed = 160 * (0.8 + this.difficultyModifier * 0.2);
-
-      // A. Bullet Avoidance Force
-      const avoidance = this.getBulletAvoidanceForce(bot);
-      finalForceX += avoidance.x * 2.5;
-      finalForceY += avoidance.y * 2.5;
-
-      // B. Obstacle Avoidance Force (Tilemap Whiskers)
-      const obstacleAvoidance = this.getObstacleAvoidanceForce(bot);
-      finalForceX += obstacleAvoidance.x * 3.0;
-      finalForceY += obstacleAvoidance.y * 3.0;
-
-      // C. Teammate Separation (Tactical Distancing)
-      this.aiBots.getChildren().forEach((teammate: any) => {
-        if (teammate !== bot && teammate.getData('team') === team) {
-          const dist = Phaser.Math.Distance.Between(bot.x, bot.y, teammate.x, teammate.y);
-          if (dist < 120) { // Increased distance for tactical pacing
-            const angle = Phaser.Math.Angle.Between(teammate.x, teammate.y, bot.x, bot.y);
-            const weight = (120 - dist) / 120;
-            finalForceX += Math.cos(angle) * weight * 1.5;
-            finalForceY += Math.sin(angle) * weight * 1.5;
-          }
-        }
-      });
-
-      if (nearestTarget) {
-        // C. Target Force (Movement relative to enemy)
-        const targetAngle = Phaser.Math.Angle.Between(bot.x, bot.y, nearestTarget.x, nearestTarget.y);
-
-        if (healthPercent < 0.35) {
-          // RETREAT/SEEK COVER
-          const coverPos = this.findCoverPosition(bot, nearestTarget);
-          if (coverPos) {
-            const coverAngle = Phaser.Math.Angle.Between(bot.x, bot.y, coverPos.x, coverPos.y);
-            finalForceX += Math.cos(coverAngle) * 1.5;
-            finalForceY += Math.sin(coverAngle) * 1.5;
-            moveSpeed *= 1.2;
-          } else {
-            // Backup if no cover: move away
-            finalForceX -= Math.cos(targetAngle) * 1.2;
-            finalForceY -= Math.sin(targetAngle) * 1.2;
-          }
-        } else {
-          // OFFENSIVE ENGAGEMENT
-          const wKey = bot.getData('weaponKey');
-          const optimalRange = wKey === 'shotgun' ? 150 : wKey === 'smg' ? 350 : 450;
-
-          if (minDist > optimalRange + 50) {
-            // Close in
-            finalForceX += Math.cos(targetAngle);
-            finalForceY += Math.sin(targetAngle);
-          } else if (minDist < optimalRange - 50) {
-            // Back up
-            finalForceX -= Math.cos(targetAngle);
-            finalForceY -= Math.sin(targetAngle);
-          }
-
-          // D. Strafing (Jittery movement)
-          const strafeDirection = (bot.getData('id').charCodeAt(0) % 2 === 0 ? 1 : -1);
-          const strafeAngle = targetAngle + (Math.PI / 2) * strafeDirection;
-          const jitter = Math.sin(time * 0.005 + bot.getData('id').length) * 0.5;
-          finalForceX += Math.cos(strafeAngle + jitter) * 0.8;
-          finalForceY += Math.sin(strafeAngle + jitter) * 0.8;
-        }
-
-        // 3. OBJECTIVE FORCE (Hardpoint)
-        if (this.mpConfig?.mode === 'HARDPOINT') {
-          const objDist = Phaser.Math.Distance.Between(bot.x, bot.y, this.hardpointCenter.x, this.hardpointCenter.y);
-          const objAngle = Phaser.Math.Angle.Between(bot.x, bot.y, this.hardpointCenter.x, this.hardpointCenter.y);
-          // Only pull to objective if not in immediate danger or already close to target
-          const objPriority = (healthPercent > 0.5 && minDist > 300) ? 1.2 : 0.4;
-          finalForceX += Math.cos(objAngle) * objPriority;
-          finalForceY += Math.sin(objAngle) * objPriority;
-        }
-
-        // Apply movement
-        if ((finalForceX !== 0 || finalForceY !== 0) && !isNaN(finalForceX) && !isNaN(finalForceY)) {
-          const finalAngle = Math.atan2(finalForceY, finalForceX);
-          
-          // Stuck Detection logic
-          const botId = bot.getData('id');
-          const lastPos = this.botLastPositions.get(botId);
-          if (lastPos && time > lastPos.time + 1000) {
-              const distTraveled = Phaser.Math.Distance.Between(lastPos.x, lastPos.y, bot.x, bot.y);
-              if (distTraveled < 10 && (finalForceX !== 0 || finalForceY !== 0)) {
-                  // Bot is stuck! Apply recovery impulse
-                  const recoveryAngle = finalAngle + (Math.random() > 0.5 ? Math.PI : -Math.PI) * 0.5;
-                  bot.body.velocity.x = Math.cos(recoveryAngle) * moveSpeed * 1.5;
-                  bot.body.velocity.y = Math.sin(recoveryAngle) * moveSpeed * 1.5;
-                  this.botLastPositions.set(botId, { x: bot.x, y: bot.y, time: time + 500 });
-                  return; // Skip standard force for this frame
-              }
-              this.botLastPositions.set(botId, { x: bot.x, y: bot.y, time: time });
-          } else if (!lastPos) {
-              this.botLastPositions.set(botId, { x: bot.x, y: bot.y, time: time });
-          }
-
-          this.physics.velocityFromRotation(finalAngle, moveSpeed, bot.body.velocity);
-        }
-
-        // 4. AIMING & SHOOTING
-        const aimAngle = Phaser.Math.Angle.Between(bot.x, bot.y, nearestTarget.x, nearestTarget.y);
-        bot.rotation = aimAngle;
-
-        const wConfig = WEAPONS_CONFIG[bot.getData('weaponKey')] || WEAPONS_CONFIG.pistol;
-        const delay = Math.max(0.7, 2.2 / this.difficultyModifier);
-
-        if (time > bot.getData('lastShot') + wConfig.fireRate * delay) {
-          const hasLOS = this.hasLineOfSight(bot.x, bot.y, nearestTarget.x, nearestTarget.y);
-          const targetInSafeZone = this.safeZoneTimer > 0 && (nearestTarget === this.player);
-
-          if (minDist < 800 && hasLOS && !targetInSafeZone && healthPercent > 0.15) {
-            const baseAimError = (minDist / 800) * 0.35;
-            const difficultyFactor = 1 - (this.difficultyModifier - 1) * 0.25;
-            const aimError = baseAimError * difficultyFactor;
-
-            for (let i = 0; i < wConfig.bullets; i++) {
-              const finalAngle = aimAngle + (Math.random() - 0.5) * (wConfig.spread + aimError);
-              this.spawnBullet(bot.x, bot.y, finalAngle, wConfig.key, 'bot', team);
-            }
-            bot.setData('lastShot', time);
-            this.playSpatialSound(wConfig.category === 'pistol' ? 'sfx_pistol' : 'sfx_shotgun', bot.x, bot.y, 0.4);
-          }
-        }
-      } else {
-        // PATROL behavior (when no target)
-        if (!bot.getData('patrolTarget') || Math.random() < 0.005) {
-          bot.setData('patrolTarget', { x: Phaser.Math.Between(300, 1700), y: Phaser.Math.Between(300, 1700) });
-        }
-        const patrol = bot.getData('patrolTarget');
-        const patrolAngle = Phaser.Math.Angle.Between(bot.x, bot.y, patrol.x, patrol.y);
-        this.physics.velocityFromRotation(patrolAngle, 80, bot.body.velocity);
-        bot.rotation = patrolAngle;
-      }
-
-      // Update label
-      const label = this.botLabels.get(bot.getData('id'));
+      const label = this.botLabels.get(bot.getData('id') as string);
       if (label) label.setPosition(bot.x, bot.y - 50);
     });
-  }
-
-  private getObstacleAvoidanceForce(bot: any): Phaser.Math.Vector2 {
-    const force = new Phaser.Math.Vector2(0, 0);
-    const lookAhead = 80;
-    const velocity = bot.body.velocity;
-    const speed = velocity.length();
-    
-    if (speed < 1) return force;
-
-    // Whiskers: Forward, Left, Right
-    const angle = Math.atan2(velocity.y, velocity.x);
-    const checkAngles = [0, -Math.PI / 4, Math.PI / 4];
-    
-    checkAngles.forEach(offset => {
-        const checkX = bot.x + Math.cos(angle + offset) * lookAhead;
-        const checkY = bot.y + Math.sin(angle + offset) * lookAhead;
-        
-        if (this.wallLayer) {
-            const tile = this.wallLayer.getTileAtWorldXY(checkX, checkY);
-            if (tile && (tile.index === 1 || tile.index === 2)) {
-                // Found wall! Push away from it
-                const awayAngle = angle + offset + Math.PI;
-                force.x += Math.cos(awayAngle) * 2.0;
-                force.y += Math.sin(awayAngle) * 2.0;
-            }
-        }
-    });
-
-    return force;
-  }
-
-  private getBulletAvoidanceForce(bot: any): Phaser.Math.Vector2 {
-    const force = new Phaser.Math.Vector2(0, 0);
-    const detectionRadius = 150;
-    const botTeam = bot.getData('team');
-
-    this.bullets.getChildren().forEach((b: any) => {
-      if (b.active && b.getData('team') !== botTeam) {
-        const dist = Phaser.Math.Distance.Between(bot.x, bot.y, b.x, b.y);
-        if (dist < detectionRadius) {
-          // Calculate perpendicular vector to bullet velocity
-          const bulletVel = b.body.velocity;
-          const toBullet = new Phaser.Math.Vector2(b.x - bot.x, b.y - bot.y);
-
-          // Dot product to see if bullet is moving towards bot
-          const dot = bulletVel.x * (-toBullet.x) + bulletVel.y * (-toBullet.y);
-          if (dot > 0) {
-            // Perpendicular avoidance
-            const perpX = -bulletVel.y;
-            const perpY = bulletVel.x;
-            const side = (toBullet.x * perpX + toBullet.y * perpY) > 0 ? 1 : -1;
-
-            force.x += (perpX * side) / dist;
-            force.y += (perpY * side) / dist;
-          }
-        }
-      }
-    });
-
-    return force.normalize();
-  }
-
-  private findCoverPosition(bot: any, target: any): { x: number, y: number } | null {
-    const nearbyTiles = this.wallLayer.getTilesWithinWorldXY(bot.x - 400, bot.y - 400, 800, 800);
-    const wallTiles = nearbyTiles.filter(t => t.index !== -1 && t.index !== 3);
-    
-    let bestCoverPos = null;
-    let maxSafety = 0;
-
-    wallTiles.forEach((tile: any) => {
-      // Logic: Position yourself so the tile is between you and the target
-      const wallCenterX = tile.pixelX + 32;
-      const wallCenterY = tile.pixelY + 32;
-      const angleToTarget = Phaser.Math.Angle.Between(wallCenterX, wallCenterY, target.x, target.y);
-      const coverX = wallCenterX + Math.cos(angleToTarget + Math.PI) * 45;
-      const coverY = wallCenterY + Math.sin(angleToTarget + Math.PI) * 45;
-
-      // Check if this position is actually safe (blocks LOS)
-      if (!this.hasLineOfSight(coverX, coverY, target.x, target.y)) {
-        const dist = Phaser.Math.Distance.Between(bot.x, bot.y, coverX, coverY);
-        const safety = 1000 / (dist + 1); // Prefer closer cover
-        if (safety > maxSafety) {
-          maxSafety = safety;
-          bestCoverPos = { x: coverX, y: coverY };
-        }
-      }
-    });
-
-    return bestCoverPos;
   }
 
   private updateHardpoint(time: number) {
@@ -1342,12 +1414,24 @@ export class MainScene extends Phaser.Scene {
       let bravoIn = this.physics.overlap(this.hardpointZone, this.player) && this.playerTeam === 'bravo' ? 1 : 0;
       this.otherPlayers.forEach(p => { if (this.physics.overlap(this.hardpointZone, p)) { if (p.getData('team') === 'alpha') alphaIn++; else bravoIn++; } });
       if (alphaIn > bravoIn) this.teamScores.alpha++; else if (bravoIn > alphaIn) this.teamScores.bravo++;
-      this.connections.forEach(c => c.send({ type: 'score_update', scores: this.teamScores }));
+      
+      const scoreData = { type: 'score_update', scores: this.teamScores };
+      mpLog(`Broadcasting score update: ${JSON.stringify(this.teamScores)}`, 'info');
+      this.connections.forEach(c => {
+        if (c.open) {
+          c.send(scoreData);
+        }
+      });
     }
     if (time % 30000 < 20) {
       this.hardpointCenter = { x: Phaser.Math.Between(400, 1600), y: Phaser.Math.Between(400, 1600) };
       this.moveHardpoint(this.hardpointCenter.x, this.hardpointCenter.y);
-      this.connections.forEach(c => c.send({ type: 'hp_move', x: this.hardpointCenter.x, y: this.hardpointCenter.y }));
+      const hpData = { type: 'hp_move', x: this.hardpointCenter.x, y: this.hardpointCenter.y };
+      this.connections.forEach(c => {
+        if (c.open) {
+          c.send(hpData);
+        }
+      });
     }
   }
 
@@ -1355,7 +1439,7 @@ export class MainScene extends Phaser.Scene {
     if (this.hardpointZone) { this.hardpointZone.setPosition(x, y); this.showFloatingText(x, y, "HARDPOINT_RELOCATED", "#ffffff"); }
   }
 
-  private takeDamage(dmg: number) {
+  private takeDamage(dmg: number, sourceAngle?: number) {
     if (this.invulnerabilityTimer > 0 || this.safeZoneTimer > 0 || this.isRespawning || this.isMissionOver) return;
     const scaledDmg = dmg * (0.7 + this.difficultyModifier * 0.3);
     if (this.shield > 0) {
@@ -1364,7 +1448,12 @@ export class MainScene extends Phaser.Scene {
       this.health -= remaining;
     } else this.health -= scaledDmg;
     this.invulnerabilityTimer = 400;
+    this.inCombat = true;
+    this.combatFadeTimer = 3000;
     this.playSound('sfx_hit_flesh', 0.8);
+    // Screen-edge / camera damage feedback
+    this.cameras.main.flash(200, 120, 0, 0, true);
+    window.dispatchEvent(new CustomEvent('PLAYER_DAMAGE', { detail: { angle: sourceAngle ?? this.player.rotation } }));
     if (this.health <= 0) {
       this.deaths++; if (this.mission) this.lives--;
       this.isRespawning = true;
@@ -1376,8 +1465,7 @@ export class MainScene extends Phaser.Scene {
       this.time.delayedCall(1500, () => {
         if (this.isMissionOver) return;
         if (this.mission && this.lives <= 0) {
-          this.isMissionOver = true;
-          window.dispatchEvent(new CustomEvent('MISSION_COMPLETE', { detail: { failed: true, reason: 'OUT_OF_LIVES' } }));
+          this.completeMission({ failed: true, reason: 'OUT_OF_LIVES' });
           return;
         }
         this.health = this.maxHealth; this.shield = this.maxShield;
@@ -1409,19 +1497,30 @@ export class MainScene extends Phaser.Scene {
   private applyDamage(target: any, dmg: number, sourceTeam: 'alpha' | 'beta') {
     const hp = target.getData('hp') - dmg;
     target.setData('hp', hp);
+    this.shotsHit++;
+    this.totalDamageDealt += dmg;
     if (hp <= 0) {
       this.bloodEmitter.emitParticleAt(target.x, target.y, 20);
       this.explosionEmitter.emitParticleAt(target.x, target.y, 10);
       const id = target.getData('id');
       const label = this.botLabels.get(id);
       if (label) { label.destroy(); this.botLabels.delete(id); }
-      if (this.isHost && this.roomId) this.connections.forEach(c => c.send({ type: 'destroy_object', id }));
+      if (this.isHost && this.roomId) this.broadcast({ type: 'destroy_object', id });
       target.destroy();
-      if (sourceTeam === this.playerTeam) { this.kills++; this.points += 100; }
+      if (sourceTeam === this.playerTeam) {
+        this.kills++; this.points += 100;
+        const isHeadshot = Math.random() < 0.2;
+        if (isHeadshot) {
+          this.points += 50;
+          this.showFloatingText(target.x, target.y - 70, "HEADSHOT +50", "#facc15");
+        } else {
+          this.showFloatingText(target.x, target.y - 60, "+1 KILL", "#ffffff");
+        }
+      }
       if (this.isHost && !this.isMissionOver) {
         if (this.mpConfig?.mode === 'TDM' || this.mpConfig?.mode === 'FFA') {
           this.teamScores[sourceTeam]++;
-          this.connections.forEach(c => c.send({ type: 'score_update', scores: this.teamScores }));
+          this.broadcast({ type: 'score_update', scores: this.teamScores });
         }
         this.time.delayedCall(3000, () => this.spawnAIBot(target.getData('team')));
       }
@@ -1496,7 +1595,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isMissionOver) return;
     const x = Phaser.Math.Between(300, 1700), y = Phaser.Math.Between(300, 1700), id = `luck_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     this.luckBoxes.create(x, y, 'luck_box').setData('id', id).setDepth(5);
-    if (this.isHost && this.roomId) this.connections.forEach(c => c.send({ type: 'spawn_box', boxType: 'luck', id, x, y }));
+    if (this.isHost && this.roomId) this.broadcast({ type: 'spawn_box', boxType: 'luck', id, x, y });
   }
 
   private spawnWeaponBox() {
@@ -1504,7 +1603,7 @@ export class MainScene extends Phaser.Scene {
     const x = Phaser.Math.Between(300, 1700), y = Phaser.Math.Between(300, 1700), id = `weapon_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const box = this.weaponBoxes.create(x, y, 'weapon_box').setData('id', id).setDepth(5);
     this.tweens.add({ targets: box, scale: 1.1, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    if (this.isHost && this.roomId) this.connections.forEach(c => c.send({ type: 'spawn_box', boxType: 'weapon', id, x, y }));
+    if (this.isHost && this.roomId) this.broadcast({ type: 'spawn_box', boxType: 'weapon', id, x, y });
   }
 
   private createRemoteBox(data: any) {
@@ -1530,7 +1629,7 @@ export class MainScene extends Phaser.Scene {
     this.ammo = this.currentWeapon.maxAmmo; this.health = Math.min(this.health + 50, this.maxHealth);
     this.points += 25; this.playSpatialSound('sfx_powerup', box.x, box.y, 0.6);
     this.showFloatingText(box.x, box.y, "RESOURCES_RESTORED +25", "#f97316");
-    if (this.roomId) this.connections.forEach(c => c.send({ type: 'destroy_object', id }));
+    if (this.roomId) this.broadcast({ type: 'destroy_object', id });
     box.destroy();
   }
 
@@ -1542,8 +1641,8 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.existing(item); this.weaponItems.add(item);
     item.setData('weaponKey', key).setData('id', itemId);
     if (this.roomId) {
-      if (this.isHost) this.connections.forEach(c => c.send({ type: 'spawn_item', id: itemId, weaponKey: key, x: box.x, y: box.y }));
-      this.connections.forEach(c => c.send({ type: 'destroy_object', id }));
+      if (this.isHost) this.broadcast({ type: 'spawn_item', id: itemId, weaponKey: key, x: box.x, y: box.y });
+      this.broadcast({ type: 'destroy_object', id });
     }
     this.tweens.add({ targets: item, y: box.y - 15, duration: 1000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     box.destroy();
@@ -1579,7 +1678,7 @@ export class MainScene extends Phaser.Scene {
   private collectWeaponItem(item: any) {
     this.swapWeapon(item.getData('weaponKey')); this.points += 50; this.playSound('sfx_powerup', 0.8);
     this.showFloatingText(item.x, item.y, "HARDWARE_SYNCHRONIZED +50", "#00ffff");
-    if (this.roomId) this.connections.forEach(c => c.send({ type: 'destroy_object', id: item.getData('id') }));
+    if (this.roomId) this.broadcast({ type: 'destroy_object', id: item.getData('id') });
     item.destroy();
   }
 
@@ -1603,14 +1702,13 @@ export class MainScene extends Phaser.Scene {
 
   private swapWeapon(key: string) {
     const config = WEAPONS_CONFIG[key];
-    if (config) {
-      this.currentWeapon = config; this.ammo = config.maxAmmo;
-      this.playSound('sfx_powerup', 0.4); // Weapon swap sound
-      this.tweens.add({ targets: this.player, scaleX: 1.25, scaleY: 1.25, duration: 80, yoyo: true, ease: 'Sine.easeInOut' });
-      this.abilityEmitter.emitParticleAt(this.player.x, this.player.y, 1);
-      this.showFloatingText(this.player.x, this.player.y - 40, `${config.icon} ${config.name} EQUIPPED`, teamColors[this.playerTeam]);
-      this.weaponLabel.setText(config.name); this.player.setTexture(`hum_${this.characterClass.toLowerCase()}_${config.category}`);
-    }
+    if (!config || !this.player || !this.player.active) return;
+    this.currentWeapon = config; this.ammo = config.maxAmmo;
+    this.playSound('sfx_powerup', 0.4); // Weapon swap sound
+    this.tweens.add({ targets: this.player, scaleX: 1.25, scaleY: 1.25, duration: 80, yoyo: true, ease: 'Sine.easeInOut' });
+    this.abilityEmitter?.emitParticleAt(this.player.x, this.player.y, 1);
+    this.showFloatingText(this.player.x, this.player.y - 40, `${config.icon} ${config.name} EQUIPPED`, teamColors[this.playerTeam]);
+    this.weaponLabel?.setText(config.name); this.player.setTexture(`hum_${this.characterClass.toLowerCase()}_${config.category}`);
   }
 
   private drawHealthBar() {

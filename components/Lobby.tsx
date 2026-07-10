@@ -84,15 +84,28 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
   const userAddress = activeAddress;
 
   // Token gating check for Bio-Forge (Labs)
-  const lmtBalance: bigint | undefined = undefined;
   const hasLabAccess = false;
-  const operatorStats: any = undefined;
 
-  const levelStats = {
-    kills: operatorStats ? Number(operatorStats.kills) : 0,
-    wins: operatorStats ? Number(operatorStats.wins) : 0,
-    gamesPlayed: operatorStats ? Number(operatorStats.gamesPlayed) : 0
-  };
+  const { getStats, recordKill, recordWin, syncStats, chainName, sessionActive, authorizeSession, hasFunds, isMiniPay: onMiniPay } = useBlockchainStats();
+
+  const [levelStats, setLevelStats] = useState<{ kills: number; wins: number; gamesPlayed: number }>({
+    kills: 0,
+    wins: 0,
+    gamesPlayed: 0,
+  });
+
+  useEffect(() => {
+    if (!activeAddress) return;
+    getStats(activeAddress).then(stats => {
+      if (stats) {
+        setLevelStats({
+          kills: Number(stats.kills) || 0,
+          wins: Number(stats.wins) || 0,
+          gamesPlayed: Number(stats.gamesPlayed) || 0,
+        });
+      }
+    });
+  }, [activeAddress, getStats]);
 
   const levelData = calculateLevelData(levelStats);
 
@@ -272,8 +285,6 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
     } catch {}
   };
 
-  const { recordKill, recordWin, syncStats, chainName, sessionActive, authorizeSession, hasFunds, isMiniPay: onMiniPay } = useBlockchainStats();
-
   // Sync name/squad logic is now inside useMultiplayer hook
 
 
@@ -372,7 +383,7 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
               LUCKY<br className="hidden sm:block" /><span className="text-orange-500"> MILITIA</span>
             </h1>
             <div className="flex justify-between items-center w-full px-1">
-              <div className="text-[7px] lg:text-[10px] font-black text-stone-600 tracking-[0.2em] lg:tracking-[0.5em] uppercase">Soroban_Uplink</div>
+              <div className="text-[7px] lg:text-[10px] font-black text-stone-600 tracking-[0.2em] lg:tracking-[0.5em] uppercase">{chainName !== 'GUEST_NETWORK' ? `${chainName}_Uplink` : 'Multichain_Terminal'}</div>
               <div className={`text-[8px] lg:text-[12px] font-black ${getRankColor(levelData.level)} uppercase tracking-widest`}>
                 {levelData.rank} // LVL {levelData.level}
               </div>

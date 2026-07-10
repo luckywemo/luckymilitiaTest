@@ -4,6 +4,14 @@ import App from './App';
 
 console.log("INDEX.TSX: STARTING BOOTSTRAP");
 
+// Catch any unhandled errors and show them visibly
+window.onerror = (msg, src, line, col, err) => {
+  document.body.innerHTML = `<div style="color:#f97316;background:#000;padding:20px;font-family:monospace;position:fixed;inset:0;z-index:99999;overflow:auto;white-space:pre-wrap"><b>RUNTIME ERROR</b>\n${msg}\n${src}:${line}:${col}\n${err?.stack || ''}</div>`;
+};
+window.onunhandledrejection = (e) => {
+  document.body.innerHTML = `<div style="color:#f97316;background:#000;padding:20px;font-family:monospace;position:fixed;inset:0;z-index:99999;overflow:auto;white-space:pre-wrap"><b>UNHANDLED PROMISE REJECTION</b>\n${e.reason?.stack || e.reason}</div>`;
+};
+
 const ErrorFallback = ({ error }: { error: Error }) => (
   <div style={{ color: 'red', padding: '20px', background: 'white', zIndex: 10000, position: 'fixed', top: 0, left: 0 }}>
     <h1>Startup Crash Detected</h1>

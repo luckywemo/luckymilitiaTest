@@ -7,10 +7,11 @@ import { resolve } from 'path';
 dotenv.config({ path: resolve(process.cwd(), '.env') });
 
 const network = process.env.VITE_NETWORK === 'base' ? base : baseSepolia;
-const client = createPublicClient({
+const rawClient = createPublicClient({
     chain: network,
     transport: http()
 });
+const client = rawClient as unknown as { readContract: (p: unknown) => Promise<unknown> };
 
 const ownableAbi = [
     { name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }
@@ -31,8 +32,9 @@ async function check() {
             functionName: 'owner'
         });
         console.log(`Current owner: ${owner}`);
-    } catch (e) {
-        console.error(`Error checking owner: ${e.message}`);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Error checking owner: ${msg}`);
     }
 }
 

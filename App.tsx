@@ -25,6 +25,7 @@ export interface MPConfig {
   bravoBots: number;
   scoreLimit: number;
   mapSeed: string;
+  hostPeerId?: string;
 }
 
 export type MissionType = 'ELIMINATION' | 'SURVIVAL' | 'EXTRACTION';

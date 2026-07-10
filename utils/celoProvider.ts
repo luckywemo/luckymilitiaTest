@@ -156,7 +156,7 @@ export async function celoRegisterPlayer(
 export async function celoRecordMatch(
   kills: number,
   wins: number,
-  mode: string
+  isPvp: boolean
 ): Promise<{ success: boolean; hash?: string; explorer?: string }> {
   try {
     const contract = await getContract();
@@ -165,8 +165,8 @@ export async function celoRecordMatch(
     const address = await getMiniPayAddress();
     if (!address) return { success: false };
 
-    console.log(`[Celo] Recording match on Celo: K:${kills} W:${wins} M:${mode}`);
-    const tx = await contract.recordMatchResult(address, kills, wins, mode);
+    console.log(`[Celo] Recording match on Celo: K:${kills} W:${wins} PvP:${isPvp}`);
+    const tx = await contract.recordMatchResult(address, kills, wins, isPvp);
     console.log(`[Celo] TX sent: ${tx.hash}`);
     await tx.wait();
 

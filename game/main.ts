@@ -24,6 +24,8 @@ export const createGame = (parent: HTMLElement, playerName: string, avatar: stri
     scale: {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
+      min: { width: 1, height: 1 },
+      max: { width: 4096, height: 4096 },
     },
     backgroundColor: '#0c0a09',
     transparent: false,

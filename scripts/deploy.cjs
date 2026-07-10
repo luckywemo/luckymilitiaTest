@@ -37,6 +37,7 @@ async function main() {
     const hash = await client.deployContract({
         abi,
         bytecode: `0x${bytecode}`,
+        gas: 1100000n,
     });
 
     console.log(`Deployment transaction sent: ${hash}`);
@@ -44,9 +45,29 @@ async function main() {
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-    console.log(`✅ Contract deployed at: ${receipt.contractAddress}`);
+    const newAddr = receipt.contractAddress;
+    console.log(`✅ Contract deployed at: ${newAddr}`);
+
+    // Authorize the relay key so it can call recordMatchResult / registerPlayer
+    const relayKey = process.env.EVM_RELAY_KEY || process.env.EVM_PRIVATE_KEY;
+    const relayAccount = privateKeyToAccount(relayKey.startsWith('0x') ? relayKey : `0x${relayKey}`);
+    if (relayAccount.address.toLowerCase() !== account.address.toLowerCase()) {
+        console.log(`\nAuthorizing relay ${relayAccount.address}...`);
+        const authHash = await client.writeContract({
+            address: newAddr,
+            abi,
+            functionName: 'setAuthorizedRelayer',
+            args: [relayAccount.address, true],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: authHash });
+        console.log(`✅ Relay authorized: ${relayAccount.address}`);
+    } else {
+        console.log(`\n(Relay key == deployer key — no separate authorization needed)`);
+    }
+
     console.log('\nUPDATE YOUR .env FILE:');
-    console.log(`VITE_MILITIA_CONTRACT_ADDRESS=${receipt.contractAddress}`);
+    console.log(`VITE_MILITIA_CONTRACT_ADDRESS=${newAddr}`);
+    console.log(`OLD_BASE_CONTRACT=<previous address here>`);
 }
 
 main().catch(console.error);

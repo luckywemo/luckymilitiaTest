@@ -144,7 +144,7 @@ export default defineConfig(({ mode }) => {
 
 // ── Relay handler for dev mode ──
 async function handleRelay(data: any, env: Record<string, string>) {
-  const { action, player, username, kills, wins, mode } = data;
+  const { action, player, username, kills, wins, isPvp } = data;
   const EVM_KEY = env.EVM_PRIVATE_KEY;
   const CONTRACT = (env.VITE_MILITIA_CONTRACT_ADDRESS || '0xa3e2975697a80485adfdef1d4a7322774d183f16');
   const RPC = env.VITE_BASE_MAINNET_RPC || 'https://mainnet.base.org';
@@ -180,7 +180,7 @@ async function handleRelay(data: any, env: Record<string, string>) {
         { name: 'player', type: 'address' as const },
         { name: 'kills', type: 'uint256' as const },
         { name: 'wins', type: 'uint256' as const },
-        { name: 'mode', type: 'string' as const },
+        { name: 'isPvp', type: 'bool' as const },
       ],
       outputs: [],
     },
@@ -190,7 +190,9 @@ async function handleRelay(data: any, env: Record<string, string>) {
   const contractAddr = CONTRACT as `0x${string}`;
 
   const publicClient = createPublicClient({ chain: base, transport: http(RPC) });
-  const walletClient = createWalletClient({ account, chain: base, transport: http(RPC) });
+  const walletClient = createWalletClient({ account, transport: http(RPC) });
+  const writeRelayed = (params: Record<string, unknown>) =>
+    (walletClient.writeContract as (p: unknown) => Promise<`0x${string}`>)(params);
 
   let hash: string;
 
@@ -201,14 +203,14 @@ async function handleRelay(data: any, env: Record<string, string>) {
         address: contractAddr, abi: ABI, functionName: 'registerPlayer',
         args: [player as `0x${string}`, username], account,
       });
-      hash = await walletClient.writeContract({
+      hash = await writeRelayed({
         address: contractAddr, abi: ABI, functionName: 'registerPlayer',
         args: [player as `0x${string}`, username],
-        gas: 200000n,
+        gas: 200000n, chain: base,
       });
       console.log(`[Relay] ✅ registerPlayer TX: ${hash}`);
     } catch (err: any) {
-      if (err?.message?.includes('ALREADY_REGISTERED')) {
+      if (err?.message?.includes('AlreadyRegistered') || err?.message?.includes('ALREADY_REGISTERED')) {
         console.log(`[Relay] Already registered: ${player}`);
         return { success: true, hash: null, note: 'Already registered on-chain' };
       }
@@ -216,34 +218,34 @@ async function handleRelay(data: any, env: Record<string, string>) {
     }
 
   } else if (action === 'recordMatch') {
-    const k = kills || 0, w = wins || 0, m = mode || 'pve';
+    const k = kills || 0, w = wins || 0, pvp = isPvp ?? false;
     try {
       await publicClient.simulateContract({
         address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [player as `0x${string}`, BigInt(k), BigInt(w), m], account,
+        args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp], account,
       });
-      hash = await walletClient.writeContract({
+      hash = await writeRelayed({
         address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [player as `0x${string}`, BigInt(k), BigInt(w), m],
-        gas: 250000n,
+        args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+        gas: 250000n, chain: base,
       });
-      console.log(`[Relay] ✅ recordMatchResult TX: ${hash} | K:${k} W:${w}`);
+      console.log(`[Relay] ✅ recordMatchResult TX: ${hash} | K:${k} W:${w} PvP:${pvp}`);
     } catch (err: any) {
-      if (err?.message?.includes('PLAYER_NOT_REGISTERED')) {
+      if (err?.message?.includes('PlayerNotRegistered') || err?.message?.includes('PLAYER_NOT_REGISTERED')) {
         console.log(`[Relay] Auto-registering ${player}...`);
         const regName = username || `OP_${player.slice(0, 6)}`;
-        const regHash = await walletClient.writeContract({
+        const regHash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'registerPlayer',
           args: [player as `0x${string}`, regName],
-          gas: 200000n,
+          gas: 200000n, chain: base,
         });
         console.log(`[Relay] Auto-register TX: ${regHash}`);
         await publicClient.waitForTransactionReceipt({ hash: regHash });
 
-        hash = await walletClient.writeContract({
+        hash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), m],
-          gas: 250000n,
+          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+          gas: 250000n, chain: base,
         });
         console.log(`[Relay] ✅ recordMatchResult TX (after register): ${hash}`);
       } else {
