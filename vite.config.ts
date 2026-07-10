@@ -144,10 +144,15 @@ export default defineConfig(({ mode }) => {
 
 // ── Relay handler for dev mode ──
 async function handleRelay(data: any, env: Record<string, string>) {
-  const { action, player, username, kills, wins, isPvp } = data;
+  const { action, player, username, kills, wins, isPvp, chainType } = data;
+  const isCelo = chainType === 'celo';
   const EVM_KEY = env.EVM_PRIVATE_KEY;
-  const CONTRACT = (env.VITE_MILITIA_CONTRACT_ADDRESS || '0xa3e2975697a80485adfdef1d4a7322774d183f16');
-  const RPC = env.VITE_BASE_MAINNET_RPC || 'https://mainnet.base.org';
+  const CONTRACT = isCelo
+    ? (env.VITE_CELO_MILITIA_CONTRACT_ADDRESS || '0xd5d73ec65ef90c98a51bfaf0b71e9ca3dc92dad2')
+    : (env.VITE_MILITIA_CONTRACT_ADDRESS || '0x68d4c7ce98bf4810f306661091e977cd57190dc6');
+  const RPC = isCelo
+    ? (env.VITE_CELO_RPC || 'https://forno.celo.org')
+    : (env.VITE_BASE_MAINNET_RPC || 'https://mainnet.base.org');
 
   if (!EVM_KEY) {
     return { error: 'EVM_PRIVATE_KEY not set in .env' };
@@ -159,7 +164,8 @@ async function handleRelay(data: any, env: Record<string, string>) {
   // Dynamic import viem (available in node_modules)
   const { createWalletClient, createPublicClient, http } = await import('viem');
   const { privateKeyToAccount } = await import('viem/accounts');
-  const { base } = await import('viem/chains');
+  const { base, celo } = await import('viem/chains');
+  const CHAIN = isCelo ? celo : base;
 
   const ABI = [
     {
@@ -184,12 +190,29 @@ async function handleRelay(data: any, env: Record<string, string>) {
       ],
       outputs: [],
     },
+    {
+      name: 'isRegistered',
+      type: 'function' as const,
+      stateMutability: 'view' as const,
+      inputs: [{ name: 'player', type: 'address' as const }],
+      outputs: [{ name: '', type: 'bool' as const }],
+    },
+    { type: 'error' as const, name: 'PlayerNotRegistered', inputs: [] },
+    { type: 'error' as const, name: 'AlreadyRegistered', inputs: [] },
+    { type: 'error' as const, name: 'NotAuthorized', inputs: [] },
+    { type: 'error' as const, name: 'NotOwner', inputs: [] },
+    { type: 'error' as const, name: 'InvalidUsername', inputs: [] },
+    { type: 'error' as const, name: 'InvalidWinCount', inputs: [] },
+    { type: 'error' as const, name: 'KillCapExceeded', inputs: [] },
+    { type: 'error' as const, name: 'CooldownActive', inputs: [] },
+    { type: 'error' as const, name: 'ZeroAddress', inputs: [] },
+    { type: 'error' as const, name: 'PlayerNotFound', inputs: [] },
   ] as const;
 
   const account = privateKeyToAccount(`0x${EVM_KEY.replace('0x', '')}` as `0x${string}`);
   const contractAddr = CONTRACT as `0x${string}`;
 
-  const publicClient = createPublicClient({ chain: base, transport: http(RPC) });
+  const publicClient = createPublicClient({ chain: CHAIN, transport: http(RPC) });
   const walletClient = createWalletClient({ account, transport: http(RPC) });
   const writeRelayed = (params: Record<string, unknown>) =>
     (walletClient.writeContract as (p: unknown) => Promise<`0x${string}`>)(params);
@@ -219,24 +242,28 @@ async function handleRelay(data: any, env: Record<string, string>) {
 
   } else if (action === 'recordMatch') {
     const k = kills || 0, w = wins || 0, pvp = isPvp ?? false;
+    const playerAddr = player as `0x${string}`;
+
     try {
+      // Try to record directly first
       await publicClient.simulateContract({
         address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp], account,
+        args: [playerAddr, BigInt(k), BigInt(w), pvp], account,
       });
       hash = await writeRelayed({
         address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+        args: [playerAddr, BigInt(k), BigInt(w), pvp],
         gas: 250000n, chain: base,
       });
       console.log(`[Relay] ✅ recordMatchResult TX: ${hash} | K:${k} W:${w} PvP:${pvp}`);
     } catch (err: any) {
-      if (err?.message?.includes('PlayerNotRegistered') || err?.message?.includes('PLAYER_NOT_REGISTERED')) {
+      const errMsg = err?.message || '';
+      if (errMsg.includes('PlayerNotRegistered') || errMsg.includes('0x37ae9e4c')) {
         console.log(`[Relay] Auto-registering ${player}...`);
         const regName = username || `OP_${player.slice(0, 6)}`;
         const regHash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'registerPlayer',
-          args: [player as `0x${string}`, regName],
+          args: [playerAddr, regName],
           gas: 200000n, chain: base,
         });
         console.log(`[Relay] Auto-register TX: ${regHash}`);
@@ -244,7 +271,7 @@ async function handleRelay(data: any, env: Record<string, string>) {
 
         hash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+          args: [playerAddr, BigInt(k), BigInt(w), pvp],
           gas: 250000n, chain: base,
         });
         console.log(`[Relay] ✅ recordMatchResult TX (after register): ${hash}`);
@@ -256,6 +283,9 @@ async function handleRelay(data: any, env: Record<string, string>) {
     return { error: 'Unknown action' };
   }
 
-  return { success: true, hash, explorer: `https://basescan.org/tx/${hash}` };
+  const explorer = isCelo
+    ? `https://celoscan.io/tx/${hash}`
+    : `https://basescan.org/tx/${hash}`;
+  return { success: true, hash, explorer };
 }
 

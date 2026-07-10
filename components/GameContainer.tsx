@@ -275,15 +275,16 @@ const FloatingStick: React.FC<{
     return { x, y };
   }, [side, radius]);
 
-  const handlePointerDown = (e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (pointerId.current !== null) return;
+    e.preventDefault();
     baseRef.current?.setPointerCapture(e.pointerId);
     pointerId.current = e.pointerId;
     setActive(true);
     if (onDown) onDown();
   };
 
-  const handlePointerMove = useCallback((e: PointerEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerId !== pointerId.current) return;
     let dx = e.clientX - origin.x;
     let dy = e.clientY - origin.y;
@@ -299,8 +300,9 @@ const FloatingStick: React.FC<{
     onMove(nx, ny);
   }, [origin, onMove, radius, deadzone]);
 
-  const handlePointerUp = useCallback((e: PointerEvent) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerId !== pointerId.current) return;
+    e.preventDefault();
     baseRef.current?.releasePointerCapture(e.pointerId);
     pointerId.current = null;
     setActive(false);
@@ -308,26 +310,17 @@ const FloatingStick: React.FC<{
     onEnd();
   }, [onEnd]);
 
-  useEffect(() => {
-    if (active) {
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-      window.addEventListener('pointercancel', handlePointerUp);
-    }
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-  }, [active, handlePointerMove, handlePointerUp]);
-
   const size = radius * 2;
   return (
     <div
       ref={baseRef}
       onPointerDown={handlePointerDown}
-      className={`fixed touch-none pointer-events-auto z-[4000] rounded-full border-2 border-white/10 bg-black/30 backdrop-blur-sm flex items-center justify-center transition-transform duration-100 active:scale-95`}
-      style={{ left: origin.x - radius, top: origin.y - radius, width: size, height: size }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      className={`fixed touch-none pointer-events-auto select-none z-[4000] rounded-full border-2 border-white/10 bg-black/30 backdrop-blur-sm flex items-center justify-center transition-transform duration-100 active:scale-95`}
+      style={{ left: origin.x - radius, top: origin.y - radius, width: size, height: size, touchAction: 'none' }}
     >
       <div className="absolute rounded-full border border-white/5" style={{ width: radius, height: radius }} />
       <div className="absolute rounded-full border-2 border-dashed border-white/10" style={{ width: deadzone * 2, height: deadzone * 2 }} />

@@ -47,15 +47,18 @@
       --mil-glass: rgba(10, 10, 10, 0.85);
     }
 
-    body {
+    html, body {
       margin: 0;
       padding: 0;
-      overflow-x: hidden;
+      overflow: hidden;
       background-color: var(--mil-bg);
       font-family: 'JetBrains Mono', monospace;
       color: #d6d3d1;
       user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
       overscroll-behavior: none;
+      touch-action: none;
     }
 
     canvas {

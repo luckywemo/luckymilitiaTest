@@ -15,13 +15,13 @@ import { base, celo } from 'viem/chains';
  * which fails for AA wallets. This relay uses the deployer key (contract owner).
  */
 
-const BASE_CONTRACT = (process.env.VITE_MILITIA_CONTRACT_ADDRESS || '0xa3e2975697a80485adfdef1d4a7322774d183f16') as `0x${string}`;
-const CELO_CONTRACT = (process.env.VITE_CELO_MILITIA_CONTRACT_ADDRESS || '0xe07297e597143c0A3f3177ce77bebc5aFBc3aDe0') as `0x${string}`;
+const BASE_CONTRACT = (process.env.VITE_MILITIA_CONTRACT_ADDRESS || '0x68d4c7ce98bf4810f306661091e977cd57190dc6') as `0x${string}`;
+const CELO_CONTRACT = (process.env.VITE_CELO_MILITIA_CONTRACT_ADDRESS || '0xd5d73ec65ef90c98a51bfaf0b71e9ca3dc92dad2') as `0x${string}`;
 const EVM_PRIVATE_KEY = process.env.EVM_PRIVATE_KEY;
 const BASE_RPC = process.env.VITE_BASE_MAINNET_RPC || 'https://mainnet.base.org';
 const CELO_RPC = process.env.VITE_CELO_RPC || 'https://forno.celo.org';
 
-// ABI for the two write functions
+// ABI for the two write functions and the errors the contract reverts with
 const MILITIA_ABI = [
   {
     name: 'registerPlayer',
@@ -45,6 +45,23 @@ const MILITIA_ABI = [
     ],
     outputs: [],
   },
+  {
+    name: 'isRegistered',
+    type: 'function' as const,
+    stateMutability: 'view' as const,
+    inputs: [{ name: 'player', type: 'address' as const }],
+    outputs: [{ name: '', type: 'bool' as const }],
+  },
+  { type: 'error' as const, name: 'PlayerNotRegistered', inputs: [] },
+  { type: 'error' as const, name: 'AlreadyRegistered', inputs: [] },
+  { type: 'error' as const, name: 'NotAuthorized', inputs: [] },
+  { type: 'error' as const, name: 'NotOwner', inputs: [] },
+  { type: 'error' as const, name: 'InvalidUsername', inputs: [] },
+  { type: 'error' as const, name: 'InvalidWinCount', inputs: [] },
+  { type: 'error' as const, name: 'KillCapExceeded', inputs: [] },
+  { type: 'error' as const, name: 'CooldownActive', inputs: [] },
+  { type: 'error' as const, name: 'ZeroAddress', inputs: [] },
+  { type: 'error' as const, name: 'PlayerNotFound', inputs: [] },
 ] as const;
 
 export const config = {
@@ -140,7 +157,7 @@ export default async function handler(request: Request) {
 
       } catch (err: any) {
         const msg = err?.message || '';
-        if (msg.includes('ALREADY_REGISTERED')) {
+        if (msg.includes('AlreadyRegistered') || msg.includes('ALREADY_REGISTERED') || msg.includes('0x3a81d6fc')) {
           console.log(`[Relay] Player ${player} already registered on-chain.`);
           return new Response(JSON.stringify({ 
             success: true, hash: null, 
@@ -181,7 +198,7 @@ export default async function handler(request: Request) {
 
       } catch (err: any) {
         const msg = err?.message || '';
-        if (msg.includes('PlayerNotRegistered') || msg.includes('PLAYER_NOT_REGISTERED')) {
+        if (msg.includes('PlayerNotRegistered') || msg.includes('0x37ae9e4c')) {
           // Auto-register first, then record
           console.log(`[Relay] Player not registered, auto-registering...`);
           const regUsername = username || `OP_${player.slice(0, 6)}`;

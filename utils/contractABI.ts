@@ -31,6 +31,13 @@ export const MILITIA_STATS_ABI = [
   // ── READ FUNCTIONS ──
 
   {
+    name: 'isRegistered',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'player', type: 'address' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
     name: 'getStats',
     type: 'function',
     stateMutability: 'view',
@@ -55,13 +62,19 @@ export const MILITIA_STATS_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  {
-    name: 'isRegistered',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'player', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
+
+  // ── CUSTOM ERRORS ──
+
+  { type: 'error', name: 'NotOwner', inputs: [] },
+  { type: 'error', name: 'NotAuthorized', inputs: [] },
+  { type: 'error', name: 'AlreadyRegistered', inputs: [] },
+  { type: 'error', name: 'InvalidUsername', inputs: [] },
+  { type: 'error', name: 'PlayerNotRegistered', inputs: [] },
+  { type: 'error', name: 'InvalidWinCount', inputs: [] },
+  { type: 'error', name: 'KillCapExceeded', inputs: [] },
+  { type: 'error', name: 'CooldownActive', inputs: [] },
+  { type: 'error', name: 'ZeroAddress', inputs: [] },
+  { type: 'error', name: 'PlayerNotFound', inputs: [] },
 
   // ── EVENTS (for Sequence Indexer) ──
 
