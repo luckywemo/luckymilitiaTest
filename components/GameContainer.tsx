@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Phaser from 'phaser';
 import { createGame } from '../game/main';
 import { GameMode, CharacterClass, MissionConfig, MPConfig } from '../App';
@@ -260,73 +260,78 @@ const FloatingStick: React.FC<{
   onEnd: () => void;
 }> = ({ side, onDown, onMove, onEnd }) => {
   const [active, setActive] = useState(false);
+  const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const pointerId = useRef<number | null>(null);
-  const baseRef = useRef<HTMLDivElement>(null);
-  const radius = typeof window !== 'undefined' && window.innerWidth < 640 ? 48 : 72;
-  const deadzone = radius * 0.18;
+  const radius = window.innerWidth < 640 ? 45 : 75;
 
-  const origin = useMemo(() => {
-    const pad = 20;
-    const W = typeof window !== 'undefined' ? window.innerWidth : 0;
-    const H = typeof window !== 'undefined' ? window.innerHeight : 0;
-    const x = side === 'left' ? pad + radius : W - pad - radius;
-    const y = H - pad - radius;
-    return { x, y };
-  }, [side, radius]);
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     if (pointerId.current !== null) return;
-    e.preventDefault();
-    baseRef.current?.setPointerCapture(e.pointerId);
+
+    // Lock the pointer to this element for reliable dragging
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+
     pointerId.current = e.pointerId;
+    setOrigin({ x: e.clientX, y: e.clientY });
+    setKnob({ x: 0, y: 0 });
     setActive(true);
+
     if (onDown) onDown();
   };
 
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = useCallback((e: PointerEvent) => {
     if (e.pointerId !== pointerId.current) return;
+
     let dx = e.clientX - origin.x;
     let dy = e.clientY - origin.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
+
     if (dist > radius) {
       const angle = Math.atan2(dy, dx);
       dx = Math.cos(angle) * radius;
       dy = Math.sin(angle) * radius;
     }
-    setKnob({ x: dx, y: dy });
-    const nx = dist > deadzone ? dx / radius : 0;
-    const ny = dist > deadzone ? dy / radius : 0;
-    onMove(nx, ny);
-  }, [origin, onMove, radius, deadzone]);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    setKnob({ x: dx, y: dy });
+    onMove(dx / radius, dy / radius);
+  }, [origin, onMove, radius]);
+
+  const handlePointerUp = useCallback((e: PointerEvent) => {
     if (e.pointerId !== pointerId.current) return;
-    e.preventDefault();
-    baseRef.current?.releasePointerCapture(e.pointerId);
+
+    const target = e.currentTarget as HTMLElement;
+    if (target && typeof target.releasePointerCapture === 'function') {
+      target.releasePointerCapture(e.pointerId);
+    }
+
     pointerId.current = null;
     setActive(false);
-    setKnob({ x: 0, y: 0 });
     onEnd();
   }, [onEnd]);
 
-  const size = radius * 2;
+  useEffect(() => {
+    if (active) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [active, handlePointerMove, handlePointerUp]);
+
   return (
     <div
-      ref={baseRef}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      className={`fixed touch-none pointer-events-auto select-none z-[4000] rounded-full border-2 border-white/10 bg-black/30 backdrop-blur-sm flex items-center justify-center transition-transform duration-100 active:scale-95`}
-      style={{ left: origin.x - radius, top: origin.y - radius, width: size, height: size, touchAction: 'none' }}
+      className={`absolute top-0 bottom-0 w-1/2 touch-none pointer-events-auto z-[4000] ${side === 'left' ? 'left-0' : 'right-0'}`}
     >
-      <div className="absolute rounded-full border border-white/5" style={{ width: radius, height: radius }} />
-      <div className="absolute rounded-full border-2 border-dashed border-white/10" style={{ width: deadzone * 2, height: deadzone * 2 }} />
-      <div className="absolute w-2 h-2 lg:w-3 lg:h-3 bg-white/80 rounded-full shadow-[0_0_10px_#fff] transition-transform duration-75" style={{ transform: `translate(${knob.x}px, ${knob.y}px) scale(${active ? 1.3 : 1})` }} />
-      {side === 'right' && active && (
-        <div className="absolute -top-8 text-[8px] font-black text-white/50 uppercase tracking-widest pointer-events-none">FIRE</div>
+      {active && (
+        <div className="fixed pointer-events-none z-[4001]" style={{ left: origin.x - radius, top: origin.y - radius }}>
+          <div className="rounded-full border-2 border-white/20 bg-black/60 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)]" style={{ width: radius * 2, height: radius * 2 }}>
+            <div className="bg-orange-500/80 rounded-full shadow-[0_0_15px_#f97316]" style={{ width: radius * 0.8, height: radius * 0.8, transform: `translate(${knob.x}px, ${knob.y}px)` }}></div>
+          </div>
+        </div>
       )}
     </div>
   );
