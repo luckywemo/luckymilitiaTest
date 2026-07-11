@@ -380,7 +380,11 @@ export class MainScene extends Phaser.Scene {
         if (this.connections.size === 0) return;
         if (!this.isHost) {
           const host = this.connections.values().next().value as DataConnection | undefined;
-          if (host?.open) host.send({ type: 'ping', t: Date.now() });
+          if (host?.open) {
+            host.send({ type: 'ping', t: Date.now() });
+            // Re-send ready until the host has acknowledged us with initial_sync.
+            if (!this.mpLinked) host.send({ type: 'ready' });
+          }
         }
       },
       loop: true
@@ -622,34 +626,56 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleConnection(conn: DataConnection) {
-    const setupConn = () => {
-      mpLog(`Connection established with ${conn.peer}. Setting up data sync...`, 'success');
-      this.connections.set(conn.peer, conn);
-      this.startPingInterval();
-      if (this.isHost) {
-        const botData = this.aiBots.getChildren().map((bot: any) => ({
-          id: bot.getData('id'),
-          x: bot.x, y: bot.y, angle: bot.rotation,
-          weaponKey: bot.getData('weaponKey'), team: bot.getData('team')
-        }));
-        const luckData = this.luckBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
-        const weaponData = this.weaponBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
-        const itemData = this.weaponItems.getChildren().map((i: any) => ({ id: i.getData('id'), x: i.x, y: i.y, weaponKey: i.getData('weaponKey') }));
-        
-        const syncData = { type: 'initial_sync', bots: botData, luckBoxes: luckData, weaponBoxes: weaponData, itemData, scores: this.teamScores };
-        mpLog(`Sending initial sync to ${conn.peer}: ${botData.length} bots, scores: ${JSON.stringify(this.teamScores)}`, 'info');
-        if (conn.open) conn.send(syncData);
-        this.emitMpStatus('connected', `HOST UPLINK ACTIVE (${this.connections.size} PEERS)`);
+    // Avoid double-handling the same connection object, and replace a closed
+    // connection if the peer reconnects with a new DataConnection.
+    const existing = this.connections.get(conn.peer);
+    if (existing) {
+      if (existing === conn) return;
+      if (!existing.open) {
+        this.connections.delete(conn.peer);
+        existing.close();
+      } else {
+        // Keep the existing open connection; close the duplicate.
+        conn.close();
+        return;
       }
-    };
-
-    if (conn.open) {
-      setupConn();
-    } else {
-      conn.on('open', setupConn);
     }
 
+    this.connections.set(conn.peer, conn);
+    this.startPingInterval();
+
+    let initialSyncSent = false;
+
+    const sendInitialSync = () => {
+      if (initialSyncSent || !this.isHost || !conn.open) return;
+      initialSyncSent = true;
+
+      const botData = this.aiBots.getChildren().map((bot: any) => ({
+        id: bot.getData('id'),
+        x: bot.x, y: bot.y, angle: bot.rotation,
+        weaponKey: bot.getData('weaponKey'), team: bot.getData('team')
+      }));
+      const luckData = this.luckBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
+      const weaponData = this.weaponBoxes.getChildren().map((b: any) => ({ id: b.getData('id'), x: b.x, y: b.y }));
+      const itemData = this.weaponItems.getChildren().map((i: any) => ({ id: i.getData('id'), x: i.x, y: i.y, weaponKey: i.getData('weaponKey') }));
+
+      const syncData = { type: 'initial_sync', bots: botData, luckBoxes: luckData, weaponBoxes: weaponData, itemData, scores: this.teamScores };
+      mpLog(`Sending initial sync to ${conn.peer}: ${botData.length} bots, scores: ${JSON.stringify(this.teamScores)}`, 'info');
+      conn.send(syncData);
+      this.emitMpStatus('connected', `HOST UPLINK ACTIVE (${this.connections.size} PEERS)`);
+    };
+
+    let readySent = false;
+    const sendReady = () => {
+      if (readySent || this.isHost || !conn.open) return;
+      readySent = true;
+      conn.send({ type: 'ready' });
+    };
+
+    // Set the data handler BEFORE the connection is marked as open so the
+    // remote peer cannot fire a message before we are listening.
     conn.on('data', (data: any) => {
+      if (!data) return;
       mpLog(`Received message from ${conn.peer}: ${data.type}`, 'info');
 
       if (data.type === 'ping' && this.isHost) {
@@ -658,6 +684,10 @@ export class MainScene extends Phaser.Scene {
       }
       if (data.type === 'pong' && !this.isHost) {
         this.currentPing = Math.max(1, Math.floor((Date.now() - data.t) / 2));
+        return;
+      }
+      if (data.type === 'ready') {
+        if (this.isHost) sendInitialSync();
         return;
       }
 
@@ -691,6 +721,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     conn.on('close', () => {
+      // Only clean up if this connection is still the active one.
+      if (this.connections.get(conn.peer) !== conn) return;
       this.connections.delete(conn.peer);
       this.otherPlayers.get(conn.peer)?.destroy();
       this.otherLabels.get(conn.peer)?.destroy();
@@ -704,6 +736,21 @@ export class MainScene extends Phaser.Scene {
         this.emitMpStatus('lost', 'HOST SIGNAL LOST');
       }
     });
+
+    const onOpen = () => {
+      mpLog(`Connection established with ${conn.peer}. Setting up data sync...`, 'success');
+      if (this.isHost) {
+        this.emitMpStatus('connected', `HOST UPLINK ACTIVE (${this.connections.size} PEERS)`);
+      } else {
+        sendReady();
+      }
+    };
+
+    if (conn.open) {
+      onOpen();
+    } else {
+      conn.on('open', onOpen);
+    }
   }
 
   private syncRemotePlayer(id: string, data: any) {

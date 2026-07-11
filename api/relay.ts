@@ -174,49 +174,24 @@ export default async function handler(request: Request) {
       const w = wins || 0;
       const pvp = isPvp ?? false;
 
-      try {
-        // Simulate first
-        await publicClient.simulateContract({
+      // Hardcoded limits from LuckyMilitiaStats.sol (no redeploy)
+      const MAX_KILLS_PER_MATCH = 100;
+      if (w > 1) throw new Error('InvalidWinCount');
+      if (k > MAX_KILLS_PER_MATCH) throw new Error('KillCapExceeded');
+
+      const isStartMatch = k === 0 && w === 0;
+
+      if (isStartMatch) {
+        // Fast path for start-of-mission (0,0): skip simulate to sign immediately.
+        // CooldownActive may cause a failed transaction; the caller accepted this risk.
+        const isRegistered = await publicClient.readContract({
           address: targetContract,
           abi: MILITIA_ABI,
-          functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
-          account,
+          functionName: 'isRegistered',
+          args: [player as `0x${string}`],
         });
 
-        // Send the real transaction
-        hash = await writeRelayed({
-          address: targetContract,
-          abi: MILITIA_ABI,
-          functionName: 'recordMatchResult',
-          args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
-          gas: 250000n,
-          chain: targetChain,
-        });
-
-        console.log(`[Relay] ✅ recordMatchResult TX sent! Hash: ${hash} | K:${k} W:${w} PvP:${pvp}`);
-
-      } catch (err: any) {
-        const msg = err?.message || '';
-        if (msg.includes('PlayerNotRegistered') || msg.includes('0x37ae9e4c')) {
-          // Auto-register first, then record
-          console.log(`[Relay] Player not registered, auto-registering...`);
-          const regUsername = username || `OP_${player.slice(0, 6)}`;
-          
-          const regHash = await writeRelayed({
-            address: targetContract,
-            abi: MILITIA_ABI,
-            functionName: 'registerPlayer',
-            args: [player as `0x${string}`, regUsername],
-            gas: 200000n,
-            chain: targetChain,
-          });
-          console.log(`[Relay] Auto-registered: ${regHash}`);
-
-          // Wait for registration to be mined
-          await publicClient.waitForTransactionReceipt({ hash: regHash });
-
-          // Now record the match
+        if (isRegistered) {
           hash = await writeRelayed({
             address: targetContract,
             abi: MILITIA_ABI,
@@ -225,9 +200,97 @@ export default async function handler(request: Request) {
             gas: 250000n,
             chain: targetChain,
           });
-          console.log(`[Relay] ✅ recordMatchResult TX sent after auto-register! Hash: ${hash}`);
+          console.log(`[Relay] ✅ startMatchResult TX sent! Hash: ${hash} | PvP:${pvp}`);
         } else {
-          throw err;
+          console.log(`[Relay] Player not registered, auto-registering before start match...`);
+          const regUsername = username || `OP_${player.slice(0, 6)}`;
+
+          const nonce = await publicClient.getTransactionCount({
+            address: account.address,
+            blockTag: 'pending',
+          });
+
+          const regHash = await writeRelayed({
+            address: targetContract,
+            abi: MILITIA_ABI,
+            functionName: 'registerPlayer',
+            args: [player as `0x${string}`, regUsername],
+            gas: 200000n,
+            chain: targetChain,
+            nonce,
+          });
+          console.log(`[Relay] Auto-registered: ${regHash}`);
+
+          hash = await writeRelayed({
+            address: targetContract,
+            abi: MILITIA_ABI,
+            functionName: 'recordMatchResult',
+            args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+            gas: 250000n,
+            chain: targetChain,
+            nonce: nonce + 1n,
+          });
+          console.log(`[Relay] ✅ startMatchResult TX sent after auto-register! Hash: ${hash}`);
+        }
+      } else {
+        // End-of-match: keep the simulate preflight to avoid CooldownActive gas.
+        try {
+          await publicClient.simulateContract({
+            address: targetContract,
+            abi: MILITIA_ABI,
+            functionName: 'recordMatchResult',
+            args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+            account,
+          });
+
+          hash = await writeRelayed({
+            address: targetContract,
+            abi: MILITIA_ABI,
+            functionName: 'recordMatchResult',
+            args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+            gas: 250000n,
+            chain: targetChain,
+          });
+
+          console.log(`[Relay] ✅ recordMatchResult TX sent! Hash: ${hash} | K:${k} W:${w} PvP:${pvp}`);
+
+        } catch (err: any) {
+          const msg = err?.message || '';
+          if (msg.includes('PlayerNotRegistered') || msg.includes('0x37ae9e4c')) {
+            // Auto-register first, then record. Use sequential nonces so record is queued
+            // immediately after register without waiting for the registration receipt.
+            console.log(`[Relay] Player not registered, auto-registering...`);
+            const regUsername = username || `OP_${player.slice(0, 6)}`;
+
+            const nonce = await publicClient.getTransactionCount({
+              address: account.address,
+              blockTag: 'pending',
+            });
+
+            const regHash = await writeRelayed({
+              address: targetContract,
+              abi: MILITIA_ABI,
+              functionName: 'registerPlayer',
+              args: [player as `0x${string}`, regUsername],
+              gas: 200000n,
+              chain: targetChain,
+              nonce,
+            });
+            console.log(`[Relay] Auto-registered: ${regHash}`);
+
+            hash = await writeRelayed({
+              address: targetContract,
+              abi: MILITIA_ABI,
+              functionName: 'recordMatchResult',
+              args: [player as `0x${string}`, BigInt(k), BigInt(w), pvp],
+              gas: 250000n,
+              chain: targetChain,
+              nonce: nonce + 1n,
+            });
+            console.log(`[Relay] ✅ recordMatchResult TX sent after auto-register! Hash: ${hash}`);
+          } else {
+            throw err;
+          }
         }
       }
 

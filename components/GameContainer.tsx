@@ -445,6 +445,41 @@ const MPBadge: React.FC<{ ping: number; peerCount: number; state: string }> = ({
   </div>
 );
 
+const SquadPanel: React.FC<{ squad: { name: string, team: 'alpha' | 'bravo' }[]; playerName: string; isHost: boolean; peerCount: number; state: string }> = ({ squad, playerName, isHost, peerCount, state }) => {
+  const total = Math.max(1, squad.length);
+  const connected = state === 'connected' ? Math.min(peerCount + 1, total) : state === 'failed' ? 0 : 1;
+  const isFullyLinked = state === 'connected' && connected >= total;
+  const dotClass = state === 'connected'
+    ? (isFullyLinked ? 'bg-green-500' : 'bg-yellow-500 animate-pulse')
+    : state === 'failed'
+      ? 'bg-red-500'
+      : 'bg-yellow-500 animate-pulse';
+
+  return (
+    <div className="tactical-panel bg-black/80 px-2 py-1 lg:px-4 lg:py-2 border-b-2 border-stone-700 mb-2 min-w-[100px] lg:min-w-[140px]">
+      <div className="flex items-center gap-1 lg:gap-2 mb-1">
+        <span className={`w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full ${dotClass}`} />
+        <span className="text-[5px] lg:text-[9px] font-black text-stone-500 uppercase tracking-widest">Squad</span>
+        <span className={`ml-auto text-[5px] lg:text-[9px] font-black ${isFullyLinked ? 'text-green-500' : 'text-yellow-500'}`}>{connected}/{total}</span>
+      </div>
+      <div className="space-y-0.5 lg:space-y-1">
+        {squad.map((m, i) => {
+          const isYou = m.name === playerName;
+          const isHostMember = isYou && isHost;
+          const teamColor = m.team === 'alpha' ? 'text-orange-500' : 'text-cyan-400';
+          return (
+            <div key={`${m.name}-${i}`} className="flex items-center gap-1 lg:gap-2 text-[7px] lg:text-[11px] font-bold text-white leading-tight">
+              <span className={`uppercase ${teamColor}`}>{m.name}</span>
+              {isHostMember && <span className="text-[5px] lg:text-[8px] text-stone-400 uppercase tracking-tighter">Host</span>}
+              {isYou && !isHostMember && <span className="text-[5px] lg:text-[8px] text-stone-400 uppercase tracking-tighter">You</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const MPToasts: React.FC<{ toasts: any[] }> = ({ toasts }) => (
   <div className="fixed top-20 right-4 z-[4700] flex flex-col gap-2 pointer-events-none">
     {toasts.map(t => (
@@ -493,6 +528,7 @@ const GameContainer: React.FC<Props> = ({ playerName, characterClass, avatar, ro
   const containerRef = useRef<HTMLDivElement>(null);
 
   const gameRef = useRef<Phaser.Game | null>(null);
+  const startMatchSent = useRef(false);
   const [stats, setStats] = useState<any>({
     hp: 100, maxHp: 100, shield: 100, ammo: 0, maxAmmo: 0, weaponKey: 'pistol', weaponName: 'SIDEARM', weaponMode: 'KINETIC // SEMI', isInfinite: true, abilityCooldown: 0, abilityMaxCooldown: 6000, kills: 0, targetKills: 0, targetValue: 0, points: 0, teamScores: { alpha: 0, bravo: 0 }, mode: 'MISSION', isOver: false, playerPos: { x: 1000, y: 1000, rotation: 0 }, entities: [], lives: 3, maxLives: 3, survivalTimer: 0, collectedItems: 0, shotsFired: 0, shotsHit: 0, missionTime: 0, missionStarted: false, ping: 0, mpPeerCount: 0, items: [], objectives: [], isPaused: false, musicMuted: false, sfxMuted: false
   });
@@ -730,6 +766,16 @@ const GameContainer: React.FC<Props> = ({ playerName, characterClass, avatar, ro
     };
   }, [playerName, characterClass, avatar, roomId, isHost, gameMode, mission, mpConfig, squad, audioEnabled, difficultyModifier, onMissionComplete, updateMovementFromKeys, updateVirtualInput, finishLoading, syncStats, address]);
 
+  // Invisible start-of-mission transaction — fires as soon as the wallet address and battlefield are ready.
+  useEffect(() => {
+    if (!sceneReady || !address || startMatchSent.current) return;
+    startMatchSent.current = true;
+    console.log('[Game] Recording mission start on-chain');
+    syncStats(0, 0, gameMode === 'multiplayer', true).catch((err: any) => {
+      console.warn('[Game] Start-mission transaction failed:', err);
+    });
+  }, [sceneReady, address, gameMode, syncStats]);
+
   // Rotate contextual tips on the loading screen
   useEffect(() => {
     if (tipInterval.current) clearInterval(tipInterval.current);
@@ -930,6 +976,15 @@ const GameContainer: React.FC<Props> = ({ playerName, characterClass, avatar, ro
 
           <div className="flex flex-col items-end gap-2 lg:gap-4">
             <MuteToggles musicMuted={musicMuted} sfxMuted={sfxMuted} onToggle={toggleMute} />
+            {gameMode === 'multiplayer' && (
+              <SquadPanel
+                squad={squad}
+                playerName={playerName}
+                isHost={isHost}
+                peerCount={peerCount}
+                state={mpStatus.state}
+              />
+            )}
             {gameMode === 'multiplayer' && <MPBadge ping={ping} peerCount={peerCount} state={mpStatus.state} />}
             <Minimap playerPos={stats.playerPos} entities={stats.entities} objectives={stats.objectives} playerTeam={playerTeam} />
             {gameMode === 'multiplayer' && (

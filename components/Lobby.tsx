@@ -86,7 +86,7 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
   // Token gating check for Bio-Forge (Labs)
   const hasLabAccess = false;
 
-  const { getStats, recordKill, recordWin, syncStats, chainName, sessionActive, authorizeSession, hasFunds, isMiniPay: onMiniPay } = useBlockchainStats();
+  const { getStats, recordKill, recordWin, chainName, sessionActive, authorizeSession, hasFunds, isMiniPay: onMiniPay } = useBlockchainStats();
 
   const [levelStats, setLevelStats] = useState<{ kills: number; wins: number; gamesPlayed: number }>({
     kills: 0,
@@ -310,36 +310,11 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
 
     if (tab === 'multiplayer' && activeRoom) {
       if (isHost) {
-        // Multi-player session registration (optional, but good for tracking)
-        if (userAddress) {
-          setIsDeploying(true);
-          try {
-            await syncStats(0, 0); // Register start of game on-chain
-            console.log('[Lobby] Session registered on-chain');
-          } catch (err) {
-            console.error('[Lobby] Transaction failed:', err);
-            // We proceed anyway to not block gameplay if the user cancels
-          }
-          setIsDeploying(false);
-        }
-
         const mapSeed = Math.random().toString(36).substring(2, 12).toUpperCase();
         const config: MPConfig = { mode: mpMatchMode, map: mpMap, alphaBots, bravoBots, scoreLimit, mapSeed };
         initiateStart(config);
       }
     } else {
-      // Mission mode session registration
-      if (userAddress) {
-        setIsDeploying(true);
-        try {
-          // Increment games played on-chain before starting
-          await syncStats(0, 0);
-          console.log('[Lobby] Mission session registered on-chain');
-        } catch (err) {
-          console.error('[Lobby] Transaction failed:', err);
-        }
-        setIsDeploying(false);
-      }
       onStart(null, true, 'mission', selectedLevelId);
     }
   };

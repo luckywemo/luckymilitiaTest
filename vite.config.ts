@@ -229,7 +229,7 @@ async function handleRelay(data: any, env: Record<string, string>) {
       hash = await writeRelayed({
         address: contractAddr, abi: ABI, functionName: 'registerPlayer',
         args: [player as `0x${string}`, username],
-        gas: 200000n, chain: base,
+        gas: 200000n, chain: CHAIN,
       });
       console.log(`[Relay] ✅ registerPlayer TX: ${hash}`);
     } catch (err: any) {
@@ -244,39 +244,93 @@ async function handleRelay(data: any, env: Record<string, string>) {
     const k = kills || 0, w = wins || 0, pvp = isPvp ?? false;
     const playerAddr = player as `0x${string}`;
 
-    try {
-      // Try to record directly first
-      await publicClient.simulateContract({
-        address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [playerAddr, BigInt(k), BigInt(w), pvp], account,
+    const MAX_KILLS_PER_MATCH = 100;
+    if (w > 1) throw new Error('InvalidWinCount');
+    if (k > MAX_KILLS_PER_MATCH) throw new Error('KillCapExceeded');
+
+    const isStartMatch = k === 0 && w === 0;
+
+    if (isStartMatch) {
+      // Fast path for start-of-mission (0,0): skip simulate to sign immediately.
+      const isRegistered = await publicClient.readContract({
+        address: contractAddr, abi: ABI, functionName: 'isRegistered',
+        args: [playerAddr],
       });
-      hash = await writeRelayed({
-        address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
-        args: [playerAddr, BigInt(k), BigInt(w), pvp],
-        gas: 250000n, chain: base,
-      });
-      console.log(`[Relay] ✅ recordMatchResult TX: ${hash} | K:${k} W:${w} PvP:${pvp}`);
-    } catch (err: any) {
-      const errMsg = err?.message || '';
-      if (errMsg.includes('PlayerNotRegistered') || errMsg.includes('0x37ae9e4c')) {
-        console.log(`[Relay] Auto-registering ${player}...`);
+
+      if (isRegistered) {
+        hash = await writeRelayed({
+          address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
+          args: [playerAddr, BigInt(k), BigInt(w), pvp],
+          gas: 250000n, chain: CHAIN,
+        });
+        console.log(`[Relay] ✅ startMatchResult TX: ${hash} | PvP:${pvp}`);
+      } else {
+        console.log(`[Relay] Player not registered, auto-registering before start match...`);
         const regName = username || `OP_${player.slice(0, 6)}`;
+
+        const nonce = await publicClient.getTransactionCount({
+          address: account.address,
+          blockTag: 'pending',
+        });
+
         const regHash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'registerPlayer',
           args: [playerAddr, regName],
-          gas: 200000n, chain: base,
+          gas: 200000n, chain: CHAIN,
+          nonce,
         });
         console.log(`[Relay] Auto-register TX: ${regHash}`);
-        await publicClient.waitForTransactionReceipt({ hash: regHash });
 
         hash = await writeRelayed({
           address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
           args: [playerAddr, BigInt(k), BigInt(w), pvp],
-          gas: 250000n, chain: base,
+          gas: 250000n, chain: CHAIN,
+          nonce: nonce + 1n,
         });
-        console.log(`[Relay] ✅ recordMatchResult TX (after register): ${hash}`);
-      } else {
-        throw err;
+        console.log(`[Relay] ✅ startMatchResult TX (after register): ${hash}`);
+      }
+    } else {
+      // End-of-match: keep simulate preflight to avoid CooldownActive gas.
+      try {
+        await publicClient.simulateContract({
+          address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
+          args: [playerAddr, BigInt(k), BigInt(w), pvp], account,
+        });
+        hash = await writeRelayed({
+          address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
+          args: [playerAddr, BigInt(k), BigInt(w), pvp],
+          gas: 250000n, chain: CHAIN,
+        });
+        console.log(`[Relay] ✅ recordMatchResult TX: ${hash} | K:${k} W:${w} PvP:${pvp}`);
+      } catch (err: any) {
+        const errMsg = err?.message || '';
+        if (errMsg.includes('PlayerNotRegistered') || errMsg.includes('0x37ae9e4c')) {
+          console.log(`[Relay] Auto-registering ${player}...`);
+          const regName = username || `OP_${player.slice(0, 6)}`;
+
+          const nonce = await publicClient.getTransactionCount({
+            address: account.address,
+            blockTag: 'pending',
+          });
+
+          const regHash = await writeRelayed({
+            address: contractAddr, abi: ABI, functionName: 'registerPlayer',
+            args: [playerAddr, regName],
+            gas: 200000n, chain: CHAIN,
+            nonce,
+          });
+          console.log(`[Relay] Auto-register TX: ${regHash}`);
+
+          hash = await writeRelayed({
+            address: contractAddr, abi: ABI, functionName: 'recordMatchResult',
+            args: [playerAddr, BigInt(k), BigInt(w), pvp],
+            gas: 250000n, chain: CHAIN,
+            nonce: nonce + 1n,
+          });
+          console.log(`[Relay] ✅ recordMatchResult TX (after register): ${hash}`);
+        } else {
+          throw err;
+        }
       }
     }
   } else {
