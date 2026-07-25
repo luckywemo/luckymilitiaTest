@@ -140,10 +140,25 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
 
     return (
         <div className="flex flex-col h-full min-h-0 gap-3 animate-in fade-in slide-in-from-right-4 duration-500">
+            <style>{`
+                @keyframes lbSlideIn { 0% { opacity: 0; transform: translateX(-15px); } 100% { opacity: 1; transform: translateX(0); } }
+                @keyframes lbScaleIn { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+                @keyframes lbPulse { 0%, 100% { border-color: rgba(249,115,22,0.3); } 50% { border-color: rgba(249,115,22,0.6); } }
+                @keyframes lbFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-3px); } }
+                .lb-row { transition: transform 0.15s ease, background 0.15s ease; }
+                .lb-row:hover { transform: translateX(3px); }
+                .lb-stagger > * { opacity: 0; animation: lbScaleIn 0.3s ease-out forwards; }
+                .lb-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+                .lb-stagger > *:nth-child(2) { animation-delay: 0.1s; }
+                .lb-stagger > *:nth-child(3) { animation-delay: 0.15s; }
+            `}</style>
 
             {/* Header + filters */}
             <div className="shrink-0 p-3 lg:p-4 bg-stone-900/60 border border-stone-800 rounded-xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-500 via-orange-600 to-transparent" />
+                {/* Corner accents */}
+                <div className="absolute top-0 right-0 w-3 h-3 border-t border-r border-orange-500/20" />
+                <div className="absolute bottom-0 right-0 w-3 h-3 border-b border-r border-orange-500/20" />
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 relative z-10">
                     <div>
                         <h3 className="text-base lg:text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
@@ -217,24 +232,37 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
                 )}
             </div>
 
-            {/* Podium — top 3 */}
+            {/* Podium — top 3 with 3D tiered effect */}
             {!isLoading && !error && topThree.length > 0 && !search && (
-                <div className="shrink-0 grid grid-cols-3 gap-2">
+                <div className="shrink-0 grid grid-cols-3 gap-2 lb-stagger">
                     {topThree.map((op, i) => {
                         const isMe = op.address.toLowerCase() === activeAddress?.toLowerCase();
+                        const podiumHeights = ['h-28', 'h-24', 'h-20'];
+                        const medalColors = ['#facc15', '#d4d4d8', '#d97706'];
                         return (
                             <div
                                 key={op.address}
-                                className={`p-2 lg:p-3 rounded-lg border text-center relative overflow-hidden ${PODIUM_STYLES[i]} ${isMe ? 'ring-1 ring-orange-500/50' : ''}`}
+                                className={`relative p-2 lg:p-3 rounded-lg border text-center overflow-hidden ${PODIUM_STYLES[i]} ${isMe ? 'ring-1 ring-orange-500/50' : ''}`}
+                                style={{ animation: 'lbFloat 3s ease-in-out infinite', animationDelay: `${i * 0.3}s`, boxShadow: `0 4px 12px rgba(0,0,0,0.3), 0 0 16px ${medalColors[i]}15` }}
                             >
-                                <div className="text-lg lg:text-xl mb-0.5">{RANK_BADGES[i]}</div>
+                                {/* Corner accents */}
+                                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l" style={{ borderColor: `${medalColors[i]}40` }} />
+                                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r" style={{ borderColor: `${medalColors[i]}40` }} />
+                                {/* SVG Medal */}
+                                <div className="flex justify-center mb-1">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" style={{ filter: `drop-shadow(0 0 4px ${medalColors[i]}60)` }}>
+                                        <circle cx="12" cy="10" r="7" fill={medalColors[i]} opacity="0.9"/>
+                                        <path d="M9 16 L7 22 L12 20 L17 22 L15 16" fill={medalColors[i]} opacity="0.7"/>
+                                        <text x="12" y="13" textAnchor="middle" fontSize="7" fontWeight="bold" fill="#000" opacity="0.6">{i + 1}</text>
+                                    </svg>
+                                </div>
                                 <div className="text-[9px] lg:text-[10px] font-black text-white uppercase truncate px-1">
                                     {displayName(op)}
                                 </div>
                                 <div className="text-[8px] text-stone-500 font-bold mt-0.5">
                                     {op.kills}K · {op.wins}W
                                 </div>
-                                <div className={`text-sm lg:text-base font-stencil mt-1 ${RANK_COLORS[i]}`}>
+                                <div className={`text-sm lg:text-base font-stencil mt-1`} style={{ color: medalColors[i], textShadow: `0 0 8px ${medalColors[i]}40` }}>
                                     {op.score.toLocaleString()}
                                 </div>
                             </div>
@@ -316,12 +344,13 @@ export default function Leaderboard({ activeAddress, playerName }: Props) {
                                     <div
                                         key={op.address}
                                         ref={isMe ? myRowRef : undefined}
-                                        className={`grid grid-cols-[2rem_1fr_3rem_3rem_3.5rem_4rem] sm:grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_5rem] gap-1 px-2 py-1.5 rounded items-center relative overflow-hidden group transition-colors ${isMe
+                                        className={`lb-row grid grid-cols-[2rem_1fr_3rem_3rem_3.5rem_4rem] sm:grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_5rem] gap-1 px-2 py-1.5 rounded items-center relative overflow-hidden group ${isMe
                                             ? 'bg-orange-500/15 border border-orange-500/30'
                                             : isTop3
                                                 ? 'bg-stone-900/50 border border-stone-700/40'
                                                 : 'hover:bg-stone-900/40 border border-transparent'
                                         }`}
+                                        style={isMe ? { animation: 'lbPulse 2s ease-in-out infinite' } : {}}
                                     >
                                         <div
                                             className="absolute left-0 top-0 h-full bg-white/[0.03] transition-all duration-500 pointer-events-none"

@@ -54,14 +54,16 @@ const MAP_META: Record<MPMap, { name: string; desc: string; icon: string }> = {
 const PersonnelCard: React.FC<{ member: SquadMember, isSelf: boolean }> = ({ member, isSelf }) => {
   const isAlpha = member.team === 'alpha';
   const colorClass = isAlpha ? 'border-orange-500/30 bg-orange-500/5' : 'border-cyan-500/30 bg-cyan-500/5';
+  const glowColor = isAlpha ? 'rgba(249,115,22,0.15)' : 'rgba(34,211,238,0.15)';
 
   return (
-    <div className={`flex items-center gap-2 p-1.5 rounded border ${colorClass} transition-all relative overflow-hidden group hover:bg-white/5`}>
+    <div className={`flex items-center gap-2 p-1.5 rounded border ${colorClass} transition-all relative overflow-hidden group hover:bg-white/5 hover:scale-[1.02] hover:shadow-lg`} style={{ transition: 'transform 0.2s ease, box-shadow 0.2s ease' }}>
       <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${isAlpha ? 'bg-orange-500' : 'bg-cyan-500'}`}></div>
-      <div className={`w-6 h-6 rounded-sm flex items-center justify-center font-black text-[10px] text-white ${isAlpha ? 'bg-orange-600' : 'bg-cyan-600'}`}>
+      {member.isReady && <div className="absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(circle at left, ${glowColor} 0%, transparent 60%)` }} />}
+      <div className={`relative w-6 h-6 rounded-sm flex items-center justify-center font-black text-[10px] text-white ${isAlpha ? 'bg-orange-600' : 'bg-cyan-600'}`} style={member.isReady ? { boxShadow: `0 0 8px ${isAlpha ? 'rgba(249,115,22,0.4)' : 'rgba(34,211,238,0.4)'}` } : {}}>
         {member.name ? member.name[0] : '?'}
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 relative">
         <div className="text-[9px] font-black text-white uppercase tracking-wider truncate flex items-center gap-1">
           {member.name || 'UNKNOWN_UNIT'}
           {isSelf && <span className="text-[5px] bg-white/10 px-1 py-0.5 rounded text-white/40 font-bold">YOU</span>}
@@ -70,9 +72,9 @@ const PersonnelCard: React.FC<{ member: SquadMember, isSelf: boolean }> = ({ mem
             <div className={`text-[6px] font-black ${member.ping < 100 ? 'text-green-500' : member.ping < 200 ? 'text-orange-500' : 'text-red-500'}`}>{member.ping}ms</div>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 relative">
          <div className={`text-[8px] font-black ${member.isReady ? 'text-green-400' : 'text-stone-600 animate-pulse'}`}>{member.isReady ? 'READY' : 'STANDBY'}</div>
-         <div className={`w-1 h-1 rounded-full animate-pulse ${isAlpha ? 'bg-orange-500' : 'bg-cyan-500'}`}></div>
+         <div className={`w-1.5 h-1.5 rounded-full ${member.isReady ? '' : 'animate-pulse'} ${isAlpha ? 'bg-orange-500' : 'bg-cyan-500'}`} style={member.isReady ? { boxShadow: `0 0 6px ${isAlpha ? 'rgba(249,115,22,0.5)' : 'rgba(34,211,238,0.5)'}` } : {}}></div>
       </div>
     </div>
   );
@@ -323,26 +325,74 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 lg:p-10 animate-in fade-in duration-500 font-mono overflow-y-auto overflow-x-hidden relative bg-black">
+      <style>{`
+        @keyframes lobbySlideUp { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
+        @keyframes lobbyScaleIn { 0% { opacity: 0; transform: scale(0.92); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes lobbyShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes lobbyScanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+        @keyframes lobbyGridMove { 0% { background-position: 0 0; } 100% { background-position: 40px 40px; } }
+        @keyframes lobbyFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+        .lobby-stagger > * { opacity: 0; animation: lobbyScaleIn 0.3s ease-out forwards; }
+        .lobby-stagger > *:nth-child(1) { animation-delay: 0.03s; }
+        .lobby-stagger > *:nth-child(2) { animation-delay: 0.06s; }
+        .lobby-stagger > *:nth-child(3) { animation-delay: 0.09s; }
+        .lobby-stagger > *:nth-child(4) { animation-delay: 0.12s; }
+        .lobby-stagger > *:nth-child(5) { animation-delay: 0.15s; }
+        .lobby-stagger > *:nth-child(6) { animation-delay: 0.18s; }
+        .lobby-stagger > *:nth-child(7) { animation-delay: 0.21s; }
+        .lobby-shimmer-text {
+          background: linear-gradient(90deg, #f97316 0%, #fbbf24 50%, #f97316 100%);
+          background-size: 200% auto;
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
+          animation: lobbyShimmer 3s linear infinite;
+        }
+      `}</style>
+      {/* Animated grid background */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+        backgroundImage: 'linear-gradient(rgba(249,115,22,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.5) 1px, transparent 1px)',
+        backgroundSize: '40px 40px',
+        animation: 'lobbyGridMove 20s linear infinite',
+      }} />
+      {/* Scanline overlay */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute left-0 right-0 h-24 opacity-[0.02]" style={{
+          background: 'linear-gradient(180deg, transparent, rgba(249,115,22,1), transparent)',
+          animation: 'lobbyScanline 10s linear infinite',
+        }} />
+      </div>
+      {/* Ambient glow orbs */}
+      <div className="absolute top-[-5%] left-[15%] w-[300px] h-[300px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.06) 0%, transparent 70%)' }} />
+      <div className="absolute bottom-[-5%] right-[15%] w-[250px] h-[250px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(34,211,238,0.04) 0%, transparent 70%)' }} />
+
       {showBriefing && (
         <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-           <div className="w-full max-w-lg tactical-panel bg-stone-900 border border-orange-500 rounded-xl overflow-hidden shadow-[0_0_50px_rgba(249,115,22,0.2)] animate-in zoom-in-95 duration-300">
-              <div className="bg-orange-600 px-4 py-2 flex justify-between items-center">
+           <div className="w-full max-w-lg tactical-panel bg-stone-900 border border-orange-500 rounded-xl overflow-hidden shadow-[0_0_50px_rgba(249,115,22,0.2)] animate-in zoom-in-95 duration-300 relative">
+              {/* Corner accents */}
+              <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-orange-400/50 z-10" />
+              <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-orange-400/50 z-10" />
+              <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-orange-400/50 z-10" />
+              <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-orange-400/50 z-10" />
+              <div className="bg-gradient-to-r from-orange-700 to-orange-600 px-4 py-2 flex justify-between items-center relative">
                  <span className="text-[10px] font-black text-white uppercase tracking-widest">COMMANDER'S BRIEFING</span>
                  <span className="text-[10px] font-black text-orange-950 uppercase">STEP {briefingStep + 1}/{briefingData.length}</span>
               </div>
-              <div className="p-6 lg:p-8 space-y-4">
-                 <h3 className="text-xl lg:text-2xl font-stencil text-white italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">{briefingData[briefingStep].title}</h3>
-                 <p className="text-xs lg:text-sm text-stone-300 font-bold leading-relaxed">{briefingData[briefingStep].text}</p>
+              <div className="p-6 lg:p-8 space-y-4 relative">
+                 {/* Scanline texture */}
+                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 3px)' }} />
+                 <h3 className="text-xl lg:text-2xl font-stencil text-white italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] relative">{briefingData[briefingStep].title}</h3>
+                 <p className="text-xs lg:text-sm text-stone-300 font-bold leading-relaxed relative" style={{ animation: 'lobbySlideUp 0.4s ease-out' }}>{briefingData[briefingStep].text}</p>
               </div>
-              <div className="p-4 bg-black/40 border-t border-stone-800 flex justify-between">
+              <div className="p-4 bg-black/40 border-t border-stone-800 flex justify-between relative">
                  {briefingStep > 0 ? (
                     <button onClick={() => { setBriefingStep(s => s - 1); playUISound('click'); }} className="px-4 py-2 text-[10px] text-stone-500 font-black uppercase hover:text-white transition-colors">PREVIOUS</button>
                  ) : <div></div>}
                  
                  {briefingStep < briefingData.length - 1 ? (
-                    <button onClick={() => { setBriefingStep(s => s + 1); playUISound('click'); }} className="px-6 py-2 bg-orange-600 text-white font-black text-[10px] uppercase rounded hover:bg-orange-500 transition-colors">NEXT</button>
+                    <button onClick={() => { setBriefingStep(s => s + 1); playUISound('click'); }} className="px-6 py-2 bg-orange-600 text-white font-black text-[10px] uppercase rounded hover:bg-orange-500 transition-all hover:scale-105" style={{ boxShadow: '0 0 12px rgba(249,115,22,0.3)' }}>NEXT</button>
                  ) : (
-                    <button onClick={closeBriefing} className="px-6 py-2 bg-white text-stone-950 font-black text-[10px] uppercase rounded hover:bg-stone-200 transition-colors shadow-[0_0_15px_rgba(255,255,255,0.5)]">END BRIEFING</button>
+                    <button onClick={closeBriefing} className="px-6 py-2 bg-white text-stone-950 font-black text-[10px] uppercase rounded hover:bg-stone-200 transition-all hover:scale-105 shadow-[0_0_15px_rgba(255,255,255,0.5)]">END BRIEFING</button>
                  )}
               </div>
            </div>
@@ -437,10 +487,12 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
                   key={t.key}
                   onClick={() => { setTab(t.key); playUISound('click'); }}
                   onMouseEnter={() => playUISound('hover')}
-                  className={`px-3 py-2 text-[7px] lg:text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 rounded ${tab === t.key ? 'bg-orange-600 text-white shadow-lg' : 'text-stone-500 hover:text-stone-300'}`}
+                  className={`relative px-3 py-2 text-[7px] lg:text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 rounded ${tab === t.key ? 'bg-orange-600 text-white' : 'text-stone-500 hover:text-stone-300 hover:bg-stone-900/50'}`}
+                  style={tab === t.key ? { boxShadow: '0 0 12px rgba(249,115,22,0.3)' } : {}}
                 >
                   <span className="text-xs lg:text-sm">{t.icon}</span>
                   <span className="hidden sm:inline">{t.key}</span>
+                  {tab === t.key && <div className="absolute -bottom-0.5 left-1 right-1 h-0.5 bg-orange-300/50 rounded-full" />}
                 </button>
               ))}
             </div>
@@ -473,11 +525,16 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
             </div>
           </div>
 
-          <div className={`lg:flex-1 lg:overflow-y-auto p-3 lg:p-8 ${tab === 'leaderboard' ? 'flex flex-col min-h-0' : ''}`}>
+          <div key={tab} className={`lg:flex-1 lg:overflow-y-auto p-3 lg:p-8 ${tab === 'leaderboard' ? 'flex flex-col min-h-0' : ''}`} style={{ animation: 'lobbySlideUp 0.3s ease-out' }}>
             {tab === 'missions' && (
               <div className="flex flex-col gap-3 lg:gap-8 h-full">
                 <div className="flex-1 relative bg-black/60 rounded-xl border border-stone-800 overflow-hidden min-h-[200px] lg:min-h-[340px] shadow-inner p-2">
                   <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #444 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
+                  {/* Corner accents on map */}
+                  <div className="absolute top-1 left-1 w-3 h-3 border-t border-l border-orange-500/30 pointer-events-none" />
+                  <div className="absolute top-1 right-1 w-3 h-3 border-t border-r border-orange-500/30 pointer-events-none" />
+                  <div className="absolute bottom-1 left-1 w-3 h-3 border-b border-l border-orange-500/30 pointer-events-none" />
+                  <div className="absolute bottom-1 right-1 w-3 h-3 border-b border-r border-orange-500/30 pointer-events-none" />
                   {missions.map(m => (
                     <button
                       key={m.id}
@@ -487,17 +544,20 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
                       style={{ left: `${m.coords.x}%`, top: `${m.coords.y}%` }}
                     >
                       {selectedLevelId === m.id && <div className="mission-pulse"></div>}
-                      <div className={`w-full h-full rounded border flex items-center justify-center font-black text-[10px] lg:text-lg ${selectedLevelId === m.id ? 'bg-orange-600 border-white text-white scale-110' : 'bg-stone-900 border-stone-800 text-stone-600'}`}>
+                      <div className={`w-full h-full rounded border flex items-center justify-center font-black text-[10px] lg:text-lg transition-all ${selectedLevelId === m.id ? 'bg-orange-600 border-white text-white scale-110' : 'bg-stone-900 border-stone-800 text-stone-600'}`} style={selectedLevelId === m.id ? { boxShadow: '0 0 16px rgba(249,115,22,0.4)' } : {}}>
                         {m.id}
                       </div>
                     </button>
                   ))}
                 </div>
                 <div className="p-3 lg:p-6 bg-stone-900/60 border border-stone-800 rounded-lg relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-orange-600"></div>
+                  <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-orange-600 to-orange-800"></div>
+                  {/* Corner accents */}
+                  <div className="absolute top-0 right-0 w-3 h-3 border-t border-r border-orange-500/20" />
+                  <div className="absolute bottom-0 right-0 w-3 h-3 border-b border-r border-orange-500/20" />
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] lg:text-[16px] font-black text-white uppercase tracking-widest">{selectedMission.name}</span>
-                    <div className="h-px flex-1 bg-stone-800"></div>
+                    <div className="h-px flex-1 bg-gradient-to-r from-stone-800 to-transparent"></div>
                     <span className="text-[7px] lg:text-[10px] font-bold text-stone-500 uppercase tracking-widest whitespace-nowrap">Level_{selectedMission.id}</span>
                   </div>
                   <p className="text-[8px] lg:text-[12px] text-stone-400 leading-relaxed font-bold italic opacity-90 pl-1 lg:pl-2">"{selectedMission.objective}"</p>
@@ -508,8 +568,10 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
             {tab === 'multiplayer' && !activeRoom && (
               <div className="flex flex-col gap-4 h-full justify-center">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-8">
-                  <button onClick={handleCreateRoom} className="p-6 lg:p-12 bg-stone-900/30 border border-stone-800 rounded-xl text-center hover:bg-stone-900/50 transition-all">
-                    <div className="w-10 h-10 lg:w-20 lg:h-20 bg-orange-600/10 rounded-lg mx-auto flex items-center justify-center mb-3">
+                  <button onClick={handleCreateRoom} className="relative p-6 lg:p-12 bg-stone-900/30 border border-stone-800 rounded-xl text-center hover:bg-stone-900/50 transition-all hover:scale-[1.02] overflow-hidden group" style={{ transition: 'transform 0.2s ease, box-shadow 0.2s ease' }}>
+                    <div className="absolute top-0 left-0 w-3 h-3 border-t border-l border-orange-500/20" />
+                    <div className="absolute top-0 right-0 w-3 h-3 border-t border-r border-orange-500/20" />
+                    <div className="w-10 h-10 lg:w-20 lg:h-20 bg-orange-600/10 rounded-lg mx-auto flex items-center justify-center mb-3" style={{ animation: 'lobbyFloat 4s ease-in-out infinite' }}>
                       <span className="text-xl lg:text-5xl">📡</span>
                     </div>
                     <h3 className="text-[10px] lg:text-xl font-black text-white uppercase mb-1">Host_Sector</h3>
@@ -848,6 +910,7 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
             onClick={() => { playUISound('click'); deploy(); }}
             onMouseEnter={() => playUISound('hover')}
             className={`hidden lg:block py-6 lg:py-12 bg-white disabled:bg-stone-900 disabled:text-stone-800 text-stone-950 font-stencil text-2xl lg:text-5xl tracking-[0.2em] transition-all rounded-2xl border-b-8 border-stone-300 active:translate-y-1 active:border-b-2 hover:bg-orange-600 hover:text-white relative overflow-hidden ${!hasFunds && activeAddress ? 'border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)]' : ''}`}
+            style={!(!hasFunds || isDeploying) ? { boxShadow: '0 0 20px rgba(255,255,255,0.1)' } : {}}
           >
             {isDeploying ? (
               <div className="flex items-center justify-center gap-4">

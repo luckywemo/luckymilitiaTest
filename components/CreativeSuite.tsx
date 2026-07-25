@@ -138,6 +138,12 @@ const CreativeSuite: React.FC<Props> = ({ onBack, setAvatar }) => {
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 lg:p-10 animate-in fade-in duration-500 font-mono overflow-y-auto overflow-x-hidden bg-black">
+      <style>{`
+        @keyframes csTypeIn { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
+        @keyframes csScaleBurst { 0% { opacity: 0; transform: scale(0.8); } 60% { opacity: 1; transform: scale(1.05); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes csGlowBurst { 0% { box-shadow: 0 0 0px rgba(249,115,22,0); } 50% { box-shadow: 0 0 30px rgba(249,115,22,0.4); } 100% { box-shadow: 0 0 0px rgba(249,115,22,0); } }
+        @keyframes csFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+      `}</style>
       <div className="w-full max-w-[1300px] grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-8">
         
         {/* LEFT CONTROL PANEL */}
@@ -234,8 +240,8 @@ const CreativeSuite: React.FC<Props> = ({ onBack, setAvatar }) => {
         <div className="lg:col-span-8 flex flex-col gap-3 lg:gap-6">
            <div className="tactical-panel flex-1 bg-stone-950/90 border border-stone-800 rounded-2xl lg:rounded-[3rem] p-2 lg:p-4 flex flex-col shadow-2xl relative overflow-hidden min-h-[300px] lg:min-h-[720px]">
               {result ? (
-                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
-                   <div className="flex-1 bg-black rounded-xl lg:rounded-[2.5rem] overflow-hidden shadow-inner border border-white/5 relative group">
+                <div className="h-full flex flex-col" style={{ animation: 'csScaleBurst 0.6s ease-out' }}>
+                   <div className="flex-1 bg-black rounded-xl lg:rounded-[2.5rem] overflow-hidden shadow-inner border border-white/5 relative group" style={{ animation: 'csGlowBurst 1s ease-out' }}>
                       <div className="absolute top-3 left-3 lg:top-10 lg:left-10 text-[6px] lg:text-[10px] font-black text-white/30 tracking-widest uppercase">VIEWPORT_OUTPUT</div>
                       {tab === 'video' ? (
                         <video src={result} controls autoPlay loop className="w-full h-full object-contain" />
@@ -273,11 +279,15 @@ const CreativeSuite: React.FC<Props> = ({ onBack, setAvatar }) => {
                    
                    {loading && thoughts.length > 0 && (
                      <div className="max-w-xs lg:max-w-md w-full p-3 lg:p-8 bg-black/60 rounded-xl lg:rounded-3xl border border-stone-900 animate-in slide-in-from-bottom-6 duration-700 shadow-2xl">
-                        <div className="text-[6px] lg:text-[10px] font-black text-orange-500/50 uppercase tracking-widest mb-2 lg:mb-6 pb-2 border-b border-stone-900">Analytics</div>
+                        <div className="text-[6px] lg:text-[10px] font-black text-orange-500/50 uppercase tracking-widest mb-2 lg:mb-6 pb-2 border-b border-stone-900 flex items-center gap-2">
+                           <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                           ANALYTICS_FEED
+                        </div>
                         <div className="space-y-1.5 lg:space-y-3">
                            {thoughts.map((t, i) => (
-                             <div key={i} className="text-[6px] lg:text-[10px] text-stone-600 uppercase font-black tracking-widest animate-in fade-in slide-in-from-left-4 duration-300">
+                             <div key={i} className="text-[6px] lg:text-[10px] text-stone-600 uppercase font-black tracking-widest" style={{ animation: 'csTypeIn 0.3s ease-out', animationDelay: `${i * 0.1}s`, opacity: 0, animationFillMode: 'forwards' }}>
                                 <span className="text-orange-500 mr-2 lg:mr-3 opacity-30">▶</span> {t}
+                                <span className="inline-block w-2 h-3 bg-orange-500/50 ml-1 animate-pulse" />
                              </div>
                            ))}
                         </div>

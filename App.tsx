@@ -4,6 +4,7 @@ import Lobby from './components/Lobby';
 import GameContainer from './components/GameContainer';
 import CreativeSuite from './components/CreativeSuite';
 import VibeAssistant from './components/VibeAssistant';
+import { Game3D } from './engine3d/Game3D';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider, useAccount } from 'wagmi';
@@ -11,7 +12,7 @@ import { KitProvider } from '@0xsequence/kit';
 import '@0xsequence/kit/styles.css';
 
 
-export type AppState = 'boot' | 'wallet-auth' | 'onboarding' | 'lobby' | 'playing' | 'labs';
+export type AppState = 'boot' | 'wallet-auth' | 'onboarding' | 'lobby' | 'playing' | 'labs' | '3d-proto';
 
 export type GameMode = 'bot' | 'multiplayer' | 'mission';
 export type CharacterClass = 'STRIKER' | 'GHOST' | 'TITAN';
@@ -430,7 +431,29 @@ const AppContent: React.FC = () => {
             setAvatar={setAvatar}
           />
         )}
+
+        {view === '3d-proto' && (
+          <Game3D
+            onExit={() => setView('lobby')}
+            onKill={() => console.log('[3D] Kill confirmed')}
+            onMatchEnd={(stats, progression) => {
+              console.log('[3D] Match end stats:', stats, 'Progression:', progression);
+              setView('lobby');
+            }}
+            missionName={MISSIONS[0].name}
+            missionObjective={MISSIONS[0].objective}
+            missionType={MISSIONS[0].type}
+          />
+        )}
       </main>
+
+      <button
+        onClick={() => setView('3d-proto')}
+        className="fixed top-2 right-2 z-50 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-black uppercase rounded border border-purple-400"
+        title="3D Engine Prototype"
+      >
+        3D Proto
+      </button>
     </div>
   );
 };

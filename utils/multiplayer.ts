@@ -60,7 +60,7 @@ export const PEER_CONFIG = {
 /**
  * Generates a sanitized room code for PeerJS IDs
  */
-export const getPeerId = (type: 'SCTR' | 'GAME', roomCode: string) => {
+export const getPeerId = (type: 'SCTR' | 'GAME' | 'FPS3D', roomCode: string) => {
     return `LM-${type}-${roomCode}`;
 };
 
