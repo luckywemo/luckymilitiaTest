@@ -2675,50 +2675,11 @@ export class FPSGame {
   }
 
   private updateMusic(dt: number) {
-    if (!this.audioCtx) return;
-    this.musicTimer -= dt;
-    if (this.musicTimer > 0) return;
-    this.musicTimer = 0.5;
-
-    const enemiesNear = this.enemies.filter(e => !e.dead && e.group.position.distanceTo(this.camera.position) < 15).length;
-    const lowHP = this.hp < 30;
-    let target: 'calm' | 'tension' | 'combat' | 'critical' = 'calm';
-    if (lowHP) target = 'critical';
-    else if (enemiesNear > 3) target = 'combat';
-    else if (enemiesNear > 0) target = 'tension';
-
-    if (target === this.musicLayer) return;
-    this.musicLayer = target;
-
-    const ctx = this.audioCtx;
-    const vol = this.settings.sfxVolume * 0.008;
-    const freqs: Record<typeof target, [number, number]> = {
-      calm: [110, 165],
-      tension: [130, 195],
-      combat: [165, 220],
-      critical: [220, 277],
-    };
-    const [f1, f2] = freqs[target];
-
+    // Music disabled during gameplay — let SFX shine through
+    if (this.musicGain) { this.musicGain.disconnect(); this.musicGain = null; }
     if (this.musicOsc) { this.musicOsc.stop(); this.musicOsc = null; }
     if (this.musicOsc2) { this.musicOsc2.stop(); this.musicOsc2 = null; }
-    if (this.musicGain) { this.musicGain.disconnect(); this.musicGain = null; }
-
-    this.musicGain = ctx.createGain();
-    this.musicGain.gain.value = 0;
-    this.musicGain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 1.0);
-
-    this.musicOsc = ctx.createOscillator();
-    this.musicOsc.type = target === 'critical' ? 'sawtooth' : 'sine';
-    this.musicOsc.frequency.value = f1;
-    this.musicOsc.connect(this.musicGain).connect(ctx.destination);
-    this.musicOsc.start();
-
-    this.musicOsc2 = ctx.createOscillator();
-    this.musicOsc2.type = 'triangle';
-    this.musicOsc2.frequency.value = f2;
-    this.musicOsc2.connect(this.musicGain).connect(ctx.destination);
-    this.musicOsc2.start();
+    this.musicLayer = 'calm';
   }
 
   private playAmbientWarfare() {
