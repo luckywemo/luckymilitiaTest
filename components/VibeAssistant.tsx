@@ -203,10 +203,10 @@ const VibeAssistant: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-10 right-10 z-[1000] flex flex-col items-end font-mono pointer-events-auto">
+    <div className="fixed bottom-16 right-3 z-[1000] flex flex-col items-end font-mono pointer-events-auto">
       {isOpen && (
-        <div className="mb-6 w-[400px] h-[600px] tactical-panel flex flex-col bg-stone-900 border border-stone-800 shadow-2xl rounded-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-          <div className="p-6 bg-stone-950 flex justify-between items-center border-b border-stone-800">
+        <div className="mb-4 w-[calc(100vw-1.5rem)] max-w-[400px] h-[60vh] max-h-[600px] tactical-panel flex flex-col bg-stone-900 border border-stone-800 shadow-2xl rounded-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+          <div className="p-3 sm:p-6 bg-stone-950 flex justify-between items-center border-b border-stone-800">
              <div className="flex items-center gap-3">
                <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-red-600 animate-pulse' : 'bg-stone-700'}`}></div>
                <h3 className="font-black text-orange-500 text-[10px] tracking-widest uppercase">HQ_DIRECT_COMM_LINK</h3>
@@ -228,7 +228,7 @@ const VibeAssistant: React.FC = () => {
                </div>
              )}
              
-             <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 bg-black/40 scrollbar-hide">
+             <div ref={scrollRef} className="flex-1 p-3 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4 bg-black/40 scrollbar-hide">
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] p-4 text-[10px] font-bold tracking-tight leading-relaxed ${m.role === 'user' ? 'bg-white text-black stencil-cutout' : 'bg-stone-800 text-stone-300 border-l-4 border-orange-500'}`}>
@@ -243,7 +243,7 @@ const VibeAssistant: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-4 bg-stone-950 border-t border-stone-800 flex gap-2">
+          <div className="p-3 sm:p-4 bg-stone-950 border-t border-stone-800 flex gap-2">
             <input 
               value={input} 
               onChange={e => setInput(e.target.value.toUpperCase())} 
@@ -257,9 +257,9 @@ const VibeAssistant: React.FC = () => {
       )}
       <button 
         onClick={() => setIsOpen(!isOpen)} 
-        className={`w-16 h-16 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)] flex items-center justify-center transition-all duration-500 border-2 ${isOpen ? 'bg-white border-stone-950 rotate-90' : 'bg-stone-900 border-stone-800 hover:border-orange-500'}`}
+        className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.8)] flex items-center justify-center transition-all duration-500 border-2 ${isOpen ? 'bg-white border-stone-950 rotate-90' : 'bg-stone-900 border-stone-800 hover:border-orange-500'}`}
       >
-        <span className="text-2xl">{isOpen ? '✖' : '📡'}</span>
+        <span className="text-xl sm:text-2xl">{isOpen ? '✖' : '📡'}</span>
         {isLive && !isOpen && <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full border-2 border-black animate-ping"></div>}
       </button>
     </div>

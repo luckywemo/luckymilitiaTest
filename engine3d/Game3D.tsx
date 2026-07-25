@@ -213,6 +213,12 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       onDeath: () => {
         setDead(true);
         setShowStats(true);
+        // Unlock pointer on mobile
+        if (typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0)) {
+          window.dispatchEvent(new Event('mobile-unlock'));
+        } else {
+          document.exitPointerLock?.();
+        }
         // Save progression: XP from kills/score, battle spoils from score
         const xpGained = stats.kills * 50 + stats.score * 2 + stats.wave * 100;
         const spoilsGained = Math.round(stats.score * 1.5 + stats.kills * 20);
@@ -335,7 +341,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         setShowSafeZoneLoadout(false);
         setCombatEngaged(true);
         setTimeout(() => setCombatEngaged(false), 2000);
-        containerRef.current?.requestPointerLock?.();
+        lockPointer();
       },
     }, settings, loadout, progression, selectedMap);
 
@@ -343,6 +349,22 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       setIsLocked(!!document.pointerLockElement);
     };
     document.addEventListener('pointerlockchange', handleLockChange);
+
+    // Mobile fallback: pointer lock doesn't work on mobile browsers
+    // Detect mobile and provide a way to set isLocked without pointer lock
+    const isMobileDevice = typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0);
+    const handleMobileLock = () => {
+      setIsLocked(true);
+      gameRef.current?.setLocked(true);
+    };
+    const handleMobileUnlock = () => {
+      setIsLocked(false);
+      gameRef.current?.setLocked(false);
+    };
+    if (isMobileDevice) {
+      window.addEventListener('mobile-lock', handleMobileLock);
+      window.addEventListener('mobile-unlock', handleMobileUnlock);
+    }
 
     // Enable aim assist on mobile
     if (typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0)) {
@@ -425,6 +447,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       document.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('deviceorientation', handleOrientation);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('mobile-lock', handleMobileLock);
+      window.removeEventListener('mobile-unlock', handleMobileUnlock);
       mpClientRef.current?.destroy();
       mpClientRef.current = null;
       gameRef.current?.destroy();
@@ -446,7 +470,27 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
     setShowBriefing(false);
     setShowMapSelect(false);
     gameRef.current?.start();
-    containerRef.current?.requestPointerLock?.();
+    if (isMobile) {
+      window.dispatchEvent(new Event('mobile-lock'));
+    } else {
+      containerRef.current?.requestPointerLock?.();
+    }
+  };
+
+  const lockPointer = () => {
+    if (isMobile) {
+      window.dispatchEvent(new Event('mobile-lock'));
+    } else {
+      containerRef.current?.requestPointerLock?.();
+    }
+  };
+
+  const unlockPointer = () => {
+    if (isMobile) {
+      window.dispatchEvent(new Event('mobile-unlock'));
+    } else {
+      document.exitPointerLock?.();
+    }
   };
 
   const healthPct = (stats.hp / stats.maxHp) * 100;
@@ -465,7 +509,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   };
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden font-mono select-none">
+    <div className="relative w-full bg-black overflow-hidden font-mono select-none" style={{ height: '100dvh' }}>
       {/* Multiplayer Lobby */}
       {mpLobby && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50">
@@ -580,7 +624,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                     setShowLoadout(false);
                     setShowBriefing(false);
                     gameRef.current?.start();
-                    containerRef.current?.requestPointerLock?.();
+                    lockPointer();
                   }
                 }}
                 disabled={!mpClientRef.current}
@@ -664,7 +708,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50">
           <div className="text-center max-w-lg px-6">
             <div className="text-[10px] text-stone-500 font-black tracking-[0.4em] mb-2">MATCH OVER</div>
-            <div className={`text-5xl font-black tracking-[0.15em] mb-6 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] ${mpGameOver.winner === 'alpha' ? 'text-orange-500' : 'text-cyan-400'}`}>
+            <div className={`text-3xl sm:text-5xl font-black tracking-[0.15em] mb-6 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] ${mpGameOver.winner === 'alpha' ? 'text-orange-500' : 'text-cyan-400'}`}>
               {mpGameOver.winner.toUpperCase()} WINS
             </div>
             {Object.entries(mpGameOver.scores).map(([id, s]: [string, any]) => (
@@ -739,23 +783,34 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Mobile fullscreen button — top-right floating */}
-      {isMobile && (
-        <button
-          onClick={toggleFullscreen}
-          className="absolute top-2 right-2 z-40 w-9 h-9 rounded-lg bg-stone-900/70 backdrop-blur-sm border border-stone-700/50 flex items-center justify-center text-stone-400 hover:text-orange-400 transition-colors"
-          title="Fullscreen"
-        >
-          {isFullscreen ? (
+      {/* Mobile fullscreen + pause buttons — top-right floating, below radar */}
+      {isMobile && isLocked && !dead && (
+        <div className="absolute top-36 left-2 z-40 flex gap-2">
+          <button
+            onClick={() => { setPaused(true); gameRef.current?.stop(); unlockPointer(); }}
+            className="w-9 h-9 rounded-lg bg-stone-900/70 backdrop-blur-sm border border-stone-700/50 flex items-center justify-center text-stone-400 hover:text-orange-400 transition-colors"
+            title="Pause"
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+              <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
             </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 8V5a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3m0 6v3a2 2 0 0 1-2 2h-3m-6 0H5a2 2 0 0 1-2-2v-3"/>
-            </svg>
-          )}
-        </button>
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            className="w-9 h-9 rounded-lg bg-stone-900/70 backdrop-blur-sm border border-stone-700/50 flex items-center justify-center text-stone-400 hover:text-orange-400 transition-colors"
+            title="Fullscreen"
+          >
+            {isFullscreen ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8V5a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3m0 6v3a2 2 0 0 1-2 2h-3m-6 0H5a2 2 0 0 1-2-2v-3"/>
+              </svg>
+            )}
+          </button>
+        </div>
       )}
 
       {/* Sniper scope overlay — replaces crosshair when ADS with sniper */}
@@ -849,7 +904,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Boss HP bar */}
       {isLocked && stats.isBossWave && stats.bossMaxHp > 0 && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 pointer-events-none w-80">
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 pointer-events-none w-72 sm:w-80 max-w-[90vw]">
           <div className="text-center text-xs font-black text-red-500 tracking-[0.3em] mb-1 drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]">
             ⚠ WARLORD {stats.bossHp < stats.bossMaxHp * 0.3 ? '— ENRAGED' : ''} ⚠
           </div>
@@ -867,7 +922,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
           <div className="text-center animate-pulse">
             <div className="text-[10px] text-red-500 font-black tracking-[0.5em] mb-2">⚠ BOSS WAVE ⚠</div>
-            <div className="text-5xl font-black text-red-600 tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,0,0,0.8)]">{bossWaveName}</div>
+            <div className="text-3xl sm:text-5xl font-black text-red-600 tracking-[0.2em] drop-shadow-[0_0_20px_rgba(255,0,0,0.8)]">{bossWaveName}</div>
           </div>
         </div>
       )}
@@ -939,7 +994,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {waveAnnounce !== null && (
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
           <div className="text-center">
-            <div className="text-5xl font-black text-white tracking-[0.3em] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
+            <div className="text-3xl sm:text-5xl font-black text-white tracking-[0.3em] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
               WAVE {waveAnnounce}
             </div>
             {waveAnnounce % 5 === 0 && (
@@ -1008,14 +1063,14 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="text-[10px] font-black tracking-[0.5em] text-cyan-400 mb-2 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
               🛡 SAFE ZONE 🛡
             </div>
-            <div className="text-6xl font-black text-cyan-300 tracking-wider drop-shadow-[0_0_15px_rgba(34,211,238,0.9)]">
+            <div className="text-4xl sm:text-6xl font-black text-cyan-300 tracking-wider drop-shadow-[0_0_15px_rgba(34,211,238,0.9)]">
               {safeZoneTimer}
             </div>
             <div className="text-[9px] font-bold tracking-[0.3em] text-cyan-500/70 mt-2 mb-4">
               ENEMIES PASSIVE • YOU ARE INVULNERABLE
             </div>
             <button
-              onClick={() => { setShowSafeZoneLoadout(true); document.exitPointerLock?.(); }}
+              onClick={() => { setShowSafeZoneLoadout(true); unlockPointer(); }}
               className="pointer-events-auto px-6 py-2 bg-cyan-900/60 hover:bg-cyan-800/80 text-cyan-300 text-[10px] font-black uppercase tracking-widest rounded-lg border border-cyan-700/50 transition-all hover:scale-105"
             >
               ⚙ Change Loadout
@@ -1030,7 +1085,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           <LoadoutScreen
             progression={progression}
             loadout={loadout}
-            onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowSafeZoneLoadout(false); containerRef.current?.requestPointerLock?.(); }}
+            onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowSafeZoneLoadout(false); lockPointer(); }}
             onProgressionChange={setProgression}
           />
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-cyan-900/80 rounded-lg border border-cyan-700/50 px-4 py-2 pointer-events-none">
@@ -1486,6 +1541,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           const updated = { ...newP, battleSpoils: newP.battleSpoils + spoilsGained, totalKills: newP.totalKills + stats.kills, totalScore: newP.totalScore + stats.score, matchesPlayed: newP.matchesPlayed + 1, bestWave: Math.max(newP.bestWave, stats.wave) };
           saveProgression(updated); setProgression(updated);
           setShowStats(true); setDead(true);
+          unlockPointer();
         }}
         className={`z-20 px-3 py-1.5 bg-stone-950/60 backdrop-blur-sm hover:bg-orange-600/80 text-stone-500 hover:text-white text-[9px] font-black uppercase tracking-[0.2em] rounded-lg border border-stone-700/50 hover:border-orange-500/50 transition-all ${isMobile ? 'absolute top-2 left-1/2 -translate-x-1/2 text-[8px] px-2 py-1' : 'absolute top-1/2 right-4 -translate-y-1/2'}`}
       >
@@ -2033,7 +2089,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="text-4xl font-black text-white tracking-[0.3em] mb-8" style={{ textShadow: '0 0 20px rgba(255,255,255,0.2)' }}>PAUSED</div>
             <div className="flex flex-col gap-3 w-64">
               <button
-                onClick={() => { setPaused(false); gameRef.current?.start(); containerRef.current?.requestPointerLock?.(); }}
+                onClick={() => { setPaused(false); gameRef.current?.start(); lockPointer(); }}
                 className="px-6 py-3 bg-orange-600/80 hover:bg-orange-600 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-orange-400/40 transition-all hover:scale-105"
               >
                 Resume
@@ -2249,7 +2305,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {isLocked && !dead && !showBriefing && (
         <div
           className="absolute inset-0 pointer-events-none z-0"
-          onKeyDown={(e) => { if (e.key === 'Escape') { setPaused(true); gameRef.current?.stop(); document.exitPointerLock?.(); } }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setPaused(true); gameRef.current?.stop(); unlockPointer(); } }}
           tabIndex={0}
         />
       )}
@@ -2362,7 +2418,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="text-[10px] text-stone-400 font-black tracking-[0.4em] mb-2">MATCH STARTS IN</div>
             <div
               key={preMatchCountdown}
-              className="text-8xl font-black text-orange-500 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]"
+              className="text-5xl sm:text-8xl font-black text-orange-500 drop-shadow-[0_0_30px_rgba(249,115,22,0.8)]"
               style={{ animation: 'countdownScale 1s ease-out' }}
             >
               {preMatchCountdown}

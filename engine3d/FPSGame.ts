@@ -3241,6 +3241,7 @@ export class FPSGame {
   public setGyroLook(yaw: number, pitch: number) { this.gyroYaw = yaw; this.gyroPitch = pitch; }
   public setAutoFire(enabled: boolean) { this.autoFireEnabled = enabled; }
   public setAimAssist(strength: number) { this.aimAssistStrength = Math.max(0, Math.min(1, strength)); }
+  public setLocked(locked: boolean) { this.isLocked = locked; }
   public getScreenFlash(): { intensity: number; color: number } { return { intensity: this.screenFlashIntensity, color: this.screenFlashColor }; }
   public setLean(dir: 'left' | 'right' | null) { this.leanDir = dir; }
   public touchJump() { this.tryJump(); }
@@ -4936,6 +4937,10 @@ export class FPSGame {
     // Spawn enemies and pickups when game actually starts
     this.spawnEnemies();
     this.spawnPickups();
+    // On mobile, pointer lock is not available — set isLocked manually
+    if (!('pointerLockElement' in document) || !(document.documentElement?.requestPointerLock)) {
+      this.isLocked = true;
+    }
   }
 
   stop() { this.started = false; }

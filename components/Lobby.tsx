@@ -878,7 +878,7 @@ const Lobby: React.FC<Props> = ({ playerName, setPlayerName, characterClass, set
               ))}
             </div>
 
-            <div className="text-center pt-3 lg:pt-2 relative z-10 bg-black/40 p-2 rounded backdrop-blur-sm mt-16">
+            <div className="text-center pt-3 lg:pt-2 relative z-10 bg-black/40 p-2 rounded backdrop-blur-sm lg:mt-16">
               <h3 className="text-2xl lg:text-3xl font-black font-stencil text-white uppercase italic tracking-widest drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">{characterClass}</h3>
               <p className="text-[11px] lg:text-[10px] text-orange-400 font-bold px-2 mt-2 leading-relaxed">"{CLASS_META[characterClass].desc}"</p>
             </div>

@@ -233,11 +233,11 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
       <div className="absolute bottom-[-10%] right-[10%] w-[350px] h-[350px] rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)' }} />
 
       {/* Header bar — premium with corner accents */}
-      <div className="relative flex-shrink-0 z-10 bg-gradient-to-b from-black/80 to-stone-950/60 border-b border-orange-900/20 px-6 py-3 flex items-center justify-between" style={{ animation: 'slideRight 0.4s ease-out' }}>
+      <div className="relative flex-shrink-0 z-10 bg-gradient-to-b from-black/80 to-stone-950/60 border-b border-orange-900/20 px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between flex-wrap gap-2" style={{ animation: 'slideRight 0.4s ease-out' }}>
         {/* Corner accents */}
         <div className="absolute top-0 left-0 w-12 h-3 border-t-2 border-l-2 border-orange-500/40" />
         <div className="absolute top-0 right-0 w-12 h-3 border-t-2 border-r-2 border-orange-500/40" />
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-2 sm:gap-5 flex-wrap">
           {/* Game title with shimmer */}
           <div className="flex items-center gap-3">
             <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-orange-600 to-red-800 flex items-center justify-center" style={{ boxShadow: '0 0 16px rgba(249,115,22,0.4), 0 2px 8px rgba(0,0,0,0.5)' }}>
@@ -260,7 +260,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
                 <span className="text-lg font-black text-orange-500" style={{ textShadow: '0 0 10px rgba(249,115,22,0.5)' }}>{progression.level}</span>
               </div>
             </div>
-            <div className="w-32">
+            <div className="w-24 sm:w-32">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[7px] text-stone-500 font-bold tracking-widest uppercase">Level {progression.level}</span>
                 <span className="text-[7px] text-orange-500/70 font-bold">{progression.xp}/{xpNeeded}</span>
@@ -278,7 +278,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
             <span className="text-[7px] text-yellow-700 font-bold tracking-widest uppercase">Spoils</span>
           </div>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex gap-2 sm:gap-3 items-center flex-wrap">
           {onExit && <button onClick={onExit} className="px-5 py-2.5 bg-stone-900/60 hover:bg-stone-800 text-stone-400 text-[10px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105 hover:text-stone-200">Back</button>}
           <button onClick={() => onDeploy(currentLoadout)} className="relative px-10 py-2.5 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-lg border border-orange-400/40 transition-all hover:scale-105 overflow-hidden" style={{ boxShadow: '0 0 16px rgba(249,115,22,0.3), 0 2px 8px rgba(0,0,0,0.4)' }}>
             <span className="relative z-10">Deploy</span>
@@ -288,9 +288,9 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
       </div>
 
       {/* Main content — sidebar + tab area */}
-      <div className="flex-1 flex overflow-hidden relative z-10">
+      <div className="flex-1 flex overflow-hidden relative z-10 flex-col sm:flex-row">
         {/* Left sidebar — hero showcase loadout preview */}
-        <div className="w-80 flex-shrink-0 bg-gradient-to-b from-stone-950/90 to-black/60 border-r border-orange-900/15 overflow-y-auto p-4 space-y-3" style={{ animation: 'slideRight 0.5s ease-out' }}>
+        <div className="hidden sm:block w-72 lg:w-80 flex-shrink-0 bg-gradient-to-b from-stone-950/90 to-black/60 border-r border-orange-900/15 overflow-y-auto p-4 space-y-3" style={{ animation: 'slideRight 0.5s ease-out' }}>
           {/* Section label */}
           <div className="flex items-center gap-2 mb-1">
             <div className="h-px flex-1 bg-gradient-to-r from-orange-500/40 to-transparent" />
@@ -402,7 +402,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
         {/* Right — tab content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Tab bar — premium with active glow */}
-          <div className="flex gap-1 px-6 pt-3 flex-shrink-0 relative">
+          <div className="flex gap-1 px-3 sm:px-6 pt-3 flex-shrink-0 relative overflow-x-auto scrollbar-hide">
             <div className="absolute bottom-0 left-6 right-6 h-px bg-stone-800/60" />
             {tabs.map((t) => (
               <button key={t.key} onClick={() => setTab(t.key)} className={`relative px-5 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-t-lg transition-all ${tab === t.key ? 'text-orange-500 bg-stone-900/60' : 'text-stone-500 hover:text-stone-300 hover:bg-stone-900/30'}`}>
@@ -413,7 +413,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
           </div>
 
           {/* Tab content scroll area */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           {/* Weapons tab */}
           {tab === 'weapons' && (
             <div className="grid grid-cols-2 gap-3 stagger" key="weapons-grid">

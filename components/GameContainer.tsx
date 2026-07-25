@@ -863,7 +863,7 @@ const GameContainer: React.FC<Props> = ({ playerName, characterClass, avatar, ro
   }, [address, victoryData, gameMode, syncStats]);
 
   return (
-    <div className="relative w-full h-full bg-[#0c0a09] overflow-hidden font-mono text-stone-100 touch-none flex flex-col">
+    <div className="relative w-full bg-[#0c0a09] overflow-hidden font-mono text-stone-100 touch-none flex flex-col" style={{ height: '100dvh' }}>
       <div ref={containerRef} className="absolute inset-0 cursor-crosshair z-0" />
 
       {/* Loading Screen */}

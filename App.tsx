@@ -346,7 +346,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="h-screen bg-[#050505] text-stone-100 font-mono selection:bg-orange-500/30 overflow-hidden flex flex-col relative">
+    <div className="bg-[#050505] text-stone-100 font-mono selection:bg-orange-500/30 flex flex-col relative" style={{ height: '100dvh', overflow: view === 'lobby' || view === 'labs' || view === 'onboarding' ? 'auto' : 'hidden' }}>
       <VibeAssistant />
       <main className="relative flex-1 flex flex-col">
         {view === 'boot' && (
@@ -449,10 +449,10 @@ const AppContent: React.FC = () => {
 
       <button
         onClick={() => setView('3d-proto')}
-        className="fixed top-2 right-2 z-50 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-black uppercase rounded border border-purple-400"
+        className="fixed bottom-16 right-2 z-[500] px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[8px] font-black uppercase rounded border border-purple-400 lg:top-2 lg:bottom-auto lg:px-3 lg:py-1.5 lg:text-[10px]"
         title="3D Engine Prototype"
       >
-        3D Proto
+        3D
       </button>
     </div>
   );
