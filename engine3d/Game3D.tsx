@@ -203,8 +203,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       },
       onStatsUpdate: (newStats) => {
         setStats(newStats);
-        setReloading(newStats.ammo === 0);
-        setSafeZoneTimer(newStats.safeZoneTimer);
+        setReloading(prev => prev !== (newStats.ammo === 0) ? newStats.ammo === 0 : prev);
+        setSafeZoneTimer(prev => prev !== newStats.safeZoneTimer ? newStats.safeZoneTimer : prev);
       },
       onDamage: (direction: number) => {
         setDamageDir(direction);
@@ -761,10 +761,11 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {/* Sniper scope overlay — replaces crosshair when ADS with sniper */}
       {isLocked && stats?.isADS && stats?.weaponKey === 'sniper' && !dead && (
         <div className="absolute inset-0 pointer-events-none z-30">
-          {/* Black vignette around scope circle */}
-          <div className="absolute inset-0 bg-black/85" style={{
-            clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, calc(50% - 300px) 0, calc(50% - 300px) calc(50% - 300px), calc(50% + 300px) calc(50% - 300px), calc(50% + 300px) calc(50% + 300px), calc(50% - 300px) calc(50% + 300px), calc(50% - 300px) 0)',
-          }} />
+          {/* Black vignette — 4 bars around scope circle instead of clipPath for performance */}
+          <div className="absolute top-0 left-0 right-0 bg-black/90" style={{ height: 'calc(50% - 300px)', maxHeight: '50vh' }} />
+          <div className="absolute bottom-0 left-0 right-0 bg-black/90" style={{ height: 'calc(50% - 300px)', maxHeight: '50vh' }} />
+          <div className="absolute top-0 bottom-0 left-0 bg-black/90" style={{ width: 'calc(50% - 300px)', maxWidth: '50vw' }} />
+          <div className="absolute top-0 bottom-0 right-0 bg-black/90" style={{ width: 'calc(50% - 300px)', maxWidth: '50vw' }} />
           {/* Scope circle */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-black/90" style={{
             width: '600px', height: '600px', maxWidth: '90vh', maxHeight: '90vh',
@@ -1138,7 +1139,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {dead && showStats && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-40 pointer-events-auto overflow-y-auto py-8" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
           <div className="text-center max-w-lg px-4">
-            <div className="text-6xl font-black uppercase tracking-[0.3em] text-red-500 mb-2" style={{ textShadow: '0 0 25px rgba(239,68,68,0.6), 0 0 50px rgba(239,68,68,0.3)' }}>KIA</div>
+            <div className={`font-black uppercase tracking-[0.3em] text-red-500 mb-2 ${isMobile ? 'text-4xl' : 'text-6xl'}`} style={{ textShadow: '0 0 25px rgba(239,68,68,0.6), 0 0 50px rgba(239,68,68,0.3)' }}>KIA</div>
             <div className="text-sm text-stone-500 font-mono tracking-[0.2em] mb-8 uppercase">You were eliminated in action</div>
 
             {/* Primary stats */}
@@ -1314,7 +1315,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       </div>
 
-      {/* Top team status bar — reference style avatars + score */}
+      {/* Top team status bar — reference style avatars + score (desktop only) */}
+      {!isMobile && (
       <div className="absolute top-3 left-0 right-0 z-20 px-4 pointer-events-none">
         <div className="flex items-center justify-between">
           {/* Friendly team */}
@@ -1357,9 +1359,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
         </div>
       </div>
+      )}
 
-      {/* Kill feed — right side with slide-in animation */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col gap-1.5 pointer-events-none items-end">
+      {/* Kill feed — right side with slide-in animation (desktop: top-right, mobile: below radar) */}
+      <div className={`absolute z-20 flex flex-col gap-1.5 pointer-events-none items-end ${isMobile ? 'top-36 right-2' : 'top-4 right-4'}`}>
         {missionName && isLocked && !showBriefing && (
           <div className="mb-1 bg-stone-950/70 backdrop-blur-sm rounded-lg border border-orange-500/20 px-3 py-1.5 shadow-lg shadow-black/40">
             <div className="text-[7px] text-stone-500 font-black tracking-[0.25em] uppercase mb-0.5">Objective</div>
@@ -1377,13 +1380,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         ))}
       </div>
 
-      {/* Bottom-left character status — reference style portrait + health/shield */}
-      <div className="absolute bottom-5 left-5 z-20 pointer-events-none">
-        <div className="flex items-center gap-3 bg-stone-950/60 backdrop-blur-md rounded-xl p-2.5 border border-stone-700/40 shadow-xl shadow-black/50">
+      {/* Bottom-left character status — reference style portrait + health/shield (mobile: top-left compact) */}
+      <div className={`absolute z-20 pointer-events-none ${isMobile ? 'top-2 left-2' : 'bottom-5 left-5'}`}>
+        <div className={`flex items-center gap-3 bg-stone-950/60 backdrop-blur-md rounded-xl p-2.5 border border-stone-700/40 shadow-xl shadow-black/50 ${isMobile ? '!p-1.5 !gap-2' : ''}`}>
           {/* Character portrait */}
-          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-stone-600/40" style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}44, transparent)` }}>
+          <div className={`relative rounded-lg overflow-hidden border border-stone-600/40 ${isMobile ? 'w-8 h-8' : 'w-14 h-14'}`} style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}44, transparent)` }}>
             <div className="absolute inset-0 flex items-center justify-center">
-              <svg width="36" height="36" viewBox="0 0 64 64">
+              <svg width={isMobile ? 24 : 36} height={isMobile ? 24 : 36} viewBox="0 0 64 64">
                 {CHAR_ICONS[loadout.character]}
               </svg>
             </div>
@@ -1391,13 +1394,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               <div className="h-full bg-cyan-400" style={{ width: `${(stats.stamina / stats.maxStamina) * 100}%` }} />
             </div>
           </div>
-          <div className="w-36">
+          <div className={isMobile ? 'w-24' : 'w-36'}>
             {/* Health */}
             <div className="flex items-center justify-between mb-0.5">
-              <span className={`text-lg font-black leading-none ${healthPct < 30 ? 'text-red-400' : 'text-stone-200'}`}>{stats.hp}<span className="text-[10px] text-stone-500 ml-0.5">/{stats.maxHp}</span></span>
+              <span className={`font-black leading-none ${healthPct < 30 ? 'text-red-400' : 'text-stone-200'} ${isMobile ? 'text-sm' : 'text-lg'}`}>{stats.hp}<span className="text-[10px] text-stone-500 ml-0.5">/{stats.maxHp}</span></span>
               <span className="text-[8px] text-stone-500 font-black tracking-[0.2em] uppercase">HP</span>
             </div>
-            <div className="h-2 bg-stone-900/80 rounded-full overflow-hidden border border-stone-800/80 mb-1.5">
+            <div className={`bg-stone-900/80 rounded-full overflow-hidden border border-stone-800/80 mb-1.5 ${isMobile ? 'h-1.5' : 'h-2'}`}>
               <div
                 className={`h-full rounded-full transition-all duration-200 ${healthPct < 30 ? 'bg-gradient-to-r from-red-700 to-red-500' : healthPct < 60 ? 'bg-gradient-to-r from-orange-600 to-orange-400' : 'bg-gradient-to-r from-cyan-600 to-cyan-400'}`}
                 style={{ width: `${healthPct}%`, boxShadow: healthPct < 30 ? '0 0 12px rgba(220,38,38,0.6)' : '0 0 8px rgba(6,182,212,0.4)' }}
@@ -1413,7 +1416,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 />
               </div>
             </div>
-            {/* Grenades */}
+            {/* Grenades — hidden on mobile to save space */}
+            {!isMobile && (
             <div className="flex items-center gap-1.5 mt-1.5">
               <span className="text-[8px] text-stone-500 font-black tracking-widest uppercase">FRAG</span>
               <div className="flex gap-1">
@@ -1426,11 +1430,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 ))}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Bottom-right weapon/ammo panel — glassmorphic */}
+      {/* Bottom-right weapon/ammo panel — glassmorphic (mobile: hidden, shown in compact top-right) */}
+      {!isMobile && (
       <div className="absolute bottom-5 right-5 z-20 pointer-events-none">
         <div className="bg-stone-950/60 backdrop-blur-md rounded-xl p-3 border border-stone-700/40 shadow-xl shadow-black/50 text-right">
           {reloading ? (
@@ -1452,8 +1458,26 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
         </div>
       </div>
+      )}
 
-      {/* End op button — subtle pill */}
+      {/* Mobile compact weapon/ammo — top-right below radar */}
+      {isMobile && isLocked && !dead && (
+        <div className="absolute top-36 right-2 z-20 pointer-events-none">
+          <div className="bg-stone-950/60 backdrop-blur-md rounded-lg px-2 py-1 border border-stone-700/40 text-right">
+            {reloading ? (
+              <div className="text-orange-400 text-[10px] font-black tracking-widest animate-pulse">RELOADING</div>
+            ) : (
+              <div className="flex items-baseline justify-end gap-1">
+                <span className={`text-xl font-black leading-none ${stats.ammo <= 5 ? 'text-red-500' : 'text-orange-500'}`}>{stats.ammo}</span>
+                <span className="text-stone-600 text-[10px] font-black">/ {stats.magSize}</span>
+              </div>
+            )}
+            <div className="text-[7px] text-stone-400 font-black tracking-widest uppercase truncate max-w-[100px]">{stats.weaponName}</div>
+          </div>
+        </div>
+      )}
+
+      {/* End op button — subtle pill (desktop: right-center, mobile: top-left small) */}
       <button
         onClick={() => {
           const xpGained = stats.kills * 50 + stats.score * 2 + stats.wave * 100;
@@ -1463,7 +1487,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           saveProgression(updated); setProgression(updated);
           setShowStats(true); setDead(true);
         }}
-        className="absolute top-1/2 right-4 -translate-y-1/2 z-20 px-3 py-1.5 bg-stone-950/60 backdrop-blur-sm hover:bg-orange-600/80 text-stone-500 hover:text-white text-[9px] font-black uppercase tracking-[0.2em] rounded-lg border border-stone-700/50 hover:border-orange-500/50 transition-all"
+        className={`z-20 px-3 py-1.5 bg-stone-950/60 backdrop-blur-sm hover:bg-orange-600/80 text-stone-500 hover:text-white text-[9px] font-black uppercase tracking-[0.2em] rounded-lg border border-stone-700/50 hover:border-orange-500/50 transition-all ${isMobile ? 'absolute top-2 left-1/2 -translate-x-1/2 text-[8px] px-2 py-1' : 'absolute top-1/2 right-4 -translate-y-1/2'}`}
       >
         End Op
       </button>
@@ -1471,7 +1495,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {/* Compass bar — sleek strip below wave counter */}
       {isLocked && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="relative w-72 h-6 bg-stone-950/70 backdrop-blur-sm rounded-lg border border-stone-700/50 overflow-hidden shadow-lg shadow-black/40">
+          <div className={`relative bg-stone-950/70 backdrop-blur-sm rounded-lg border border-stone-700/50 overflow-hidden shadow-lg shadow-black/40 ${isMobile ? 'w-48 h-5' : 'w-72 h-6'}`}>
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-full bg-orange-500/70" style={{ boxShadow: '0 0 4px rgba(249,115,22,0.5)' }} />
             <div className="absolute top-0 left-0 flex items-center justify-between w-full h-full px-3 text-[8px] text-stone-500 font-black tracking-widest">
               <span>N</span><span>W</span><span>S</span><span>E</span>
@@ -1486,10 +1510,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Minimap / Radar — refined with glow */}
+      {/* Minimap / Radar — refined with glow (mobile: smaller) */}
       {isLocked && (
         <div className="absolute top-3 right-3 z-20 pointer-events-none">
-          <div className="relative w-28 h-28 rounded-full bg-stone-950/80 backdrop-blur-sm border-2 border-stone-700/60 overflow-hidden shadow-lg shadow-black/50">
+          <div className={`relative rounded-full bg-stone-950/80 backdrop-blur-sm border-2 border-stone-700/60 overflow-hidden shadow-lg shadow-black/50 ${isMobile ? 'w-20 h-20' : 'w-28 h-28'}`}>
             {/* Grid lines */}
             <div className="absolute top-1/2 left-0 w-full h-px bg-stone-700/30" />
             <div className="absolute left-1/2 top-0 h-full w-px bg-stone-700/30" />
@@ -1717,15 +1741,15 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             </div>
           </div>
 
-          {/* Quick-scope shortcut near top-right */}
-          <div className="absolute top-24 right-4 z-30 touch-none">
+          {/* Quick-scope shortcut — desktop: top-right, mobile: left side above lean buttons */}
+          <div className={`absolute z-30 touch-none ${isMobile ? 'bottom-48 left-5' : 'top-24 right-4'}`}>
             <HudButton size={48} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.quickScope} onClick={() => { gameRef.current?.touchQuickScope(); if (navigator.vibrate) navigator.vibrate(25); }} />
           </div>
         </>
       )}
 
-      {/* Controls hint — subtle bottom fade */}
-      {isLocked && (
+      {/* Controls hint — subtle bottom fade (desktop only) */}
+      {isLocked && !isMobile && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 text-[7px] text-stone-700 font-mono tracking-[0.15em] pointer-events-none whitespace-nowrap">
           WASD MOVE • SHIFT SPRINT • C CROUCH • Q/E LEAN • SPACE JUMP • V MELEE • RMB ADS • R RELOAD • G GRENADE • 1/2/3 WEAPONS • F LIGHT • Z QUICK CHAT • X SPECTATE • ESC PAUSE
         </div>
@@ -1743,7 +1767,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="text-3xl text-white font-black tracking-[0.15em]">CHOOSE YOUR WARZONE</div>
             <div className="mt-2 text-[10px] text-stone-500 tracking-widest">Each map features unique terrain, weather, and enemy composition</div>
           </div>
-          <div className="grid grid-cols-2 gap-4 max-w-4xl px-4">
+          <div className={`grid gap-4 max-w-4xl px-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {(Object.keys(BATTLEFIELDS) as MapType[]).map((mapId, idx) => {
               const map = BATTLEFIELDS[mapId];
               const isSelected = selectedMap === mapId;
@@ -1803,7 +1827,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Mission briefing overlay — tactical CoD-style briefing */}
       {showBriefing && missionName && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50 pointer-events-auto font-mono" style={{ animation: 'fadeInScale 0.3s ease-out' }}>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50 pointer-events-auto font-mono overflow-y-auto py-6" style={{ animation: 'fadeInScale 0.3s ease-out' }}>
           <style>{`
             @keyframes briefingSlideIn { 0% { opacity: 0; transform: translateX(-30px); } 100% { opacity: 1; transform: translateX(0); } }
             @keyframes briefingSlideRight { 0% { opacity: 0; transform: translateX(30px); } 100% { opacity: 1; transform: translateX(0); } }
@@ -1822,7 +1846,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             backgroundSize: '40px 40px',
           }} />
 
-          <div className="relative max-w-4xl w-full mx-6 px-8 py-6">
+          <div className={`relative max-w-4xl w-full mx-6 ${isMobile ? 'px-4 py-4' : 'px-8 py-6'}`}>
             {/* Top bar — mission classification */}
             <div className="flex items-center justify-between mb-6" style={{ animation: 'briefingSlideIn 0.4s ease-out' }}>
               <div className="flex items-center gap-3">

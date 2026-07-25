@@ -3785,8 +3785,9 @@ export class FPSGame {
     if (this.hp < this.maxHp * 0.75) {
       this.healthRegenTimer += dt;
       if (this.healthRegenTimer > 5) {
+        const prevHp = Math.ceil(this.hp);
         this.hp = Math.min(this.maxHp * 0.75, this.hp + 5 * dt);
-        this.updateStats();
+        if (Math.ceil(this.hp) !== prevHp) this.updateStats();
       }
     } else {
       this.healthRegenTimer = 0;
