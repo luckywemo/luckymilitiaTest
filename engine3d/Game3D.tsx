@@ -154,8 +154,12 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [showStats, setShowStats] = useState(false);
   const [showBriefing, setShowBriefing] = useState(!!missionName);
-  const [showLoadout, setShowLoadout] = useState(true);
+  const [showLoadout, setShowLoadout] = useState(!missionName ? false : false);
+  const [showModeSelect, setShowModeSelect] = useState(true);
   const [showMapSelect, setShowMapSelect] = useState(false);
+  const [showLoading, setShowLoading] = useState(false);
+  const [loadingTip, setLoadingTip] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [selectedMap, setSelectedMap] = useState<MapType>('urban_desert');
   const [safeZoneTimer, setSafeZoneTimer] = useState(0);
   const [combatEngaged, setCombatEngaged] = useState(false);
@@ -487,13 +491,48 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const enterBattlefield = () => {
     setShowBriefing(false);
     setShowMapSelect(false);
-    gameRef.current?.start();
-    if (isMobile) {
-      window.dispatchEvent(new Event('mobile-lock'));
-    } else {
-      containerRef.current?.requestPointerLock?.();
-    }
+    setShowLoading(true);
   };
+
+  // Loading screen transition — COD style deploying screen
+  useEffect(() => {
+    if (!showLoading) return;
+    const LOADING_TIPS = [
+      'Headshots deal 2.5x damage — aim for the head',
+      'Use cover to break line of sight and recover health',
+      'Reload during safe zones to stay combat-ready',
+      'Sprint with SHIFT to reposition quickly',
+      'Lean around corners with Q/E to shoot from cover',
+      'Grenades clear grouped enemies — cook before throwing',
+      'Crouch reduces your profile and improves accuracy',
+      'Watch the radar for enemy positions when UAV is active',
+    ];
+    let tipIdx = 0;
+    let progress = 0;
+    const tipInterval = setInterval(() => {
+      tipIdx = (tipIdx + 1) % LOADING_TIPS.length;
+      setLoadingTip(LOADING_TIPS[tipIdx]);
+    }, 2500);
+    const progressInterval = setInterval(() => {
+      progress += Math.random() * 15 + 5;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(progressInterval);
+        clearInterval(tipInterval);
+        setTimeout(() => {
+          setShowLoading(false);
+          gameRef.current?.start();
+          if (isMobile) {
+            window.dispatchEvent(new Event('mobile-lock'));
+          } else {
+            containerRef.current?.requestPointerLock?.();
+          }
+        }, 500);
+      }
+      setLoadingProgress(Math.min(100, progress));
+    }, 200);
+    return () => { clearInterval(tipInterval); clearInterval(progressInterval); };
+  }, [showLoading]);
 
   const lockPointer = () => {
     if (isMobile) {
@@ -657,6 +696,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   setMpLobby(false);
                   setMpRoomCode('');
                   setMpStatus('');
+                  setShowModeSelect(true);
                 }}
                 className="px-4 py-2 bg-stone-900 hover:bg-red-600/80 text-white text-xs font-black uppercase tracking-widest rounded border border-red-500/50 transition-colors"
               >
@@ -667,14 +707,119 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Multiplayer button on loadout */}
+      {/* COD-style Mode Select — first screen */}
+      {showModeSelect && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 pointer-events-auto font-mono overflow-y-auto py-8" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
+          <style>{`
+            @keyframes modeCardIn { 0% { opacity: 0; transform: translateY(30px) scale(0.95); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+            @keyframes modeGlow { 0%, 100% { box-shadow: 0 0 12px rgba(249,115,22,0.2); } 50% { box-shadow: 0 0 24px rgba(249,115,22,0.4); } }
+            @keyframes modePulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+          `}</style>
+          {/* Background grid */}
+          <div className="absolute inset-0 opacity-[0.03]" style={{
+            backgroundImage: 'linear-gradient(rgba(249,115,22,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.5) 1px, transparent 1px)',
+            backgroundSize: '50px 50px',
+          }} />
+          <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 50% 30%, rgba(249,115,22,0.15), transparent 60%)' }} />
+
+          <div className="relative z-10 text-center max-w-2xl w-full px-6">
+            {/* Title */}
+            <div className="mb-8" style={{ animation: 'modeCardIn 0.4s ease-out' }}>
+              <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-2" style={{ animation: 'modePulse 2s ease-in-out infinite' }}>SELECT GAME MODE</div>
+              <div className="text-4xl sm:text-5xl font-black text-orange-500 tracking-[0.2em]" style={{ textShadow: '0 0 30px rgba(249,115,22,0.5)' }}>LUCKY MILITIA</div>
+              <div className="w-32 h-px bg-gradient-to-r from-orange-500/60 to-transparent mx-auto mt-3" />
+            </div>
+
+            {/* Mode cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+              {/* Campaign */}
+              <button
+                onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
+                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-orange-900/30 hover:border-orange-500/60 transition-all hover:scale-105 text-left"
+                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.1s', animationFillMode: 'both' }}
+              >
+                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-orange-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                <div className="mb-3">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                  </svg>
+                </div>
+                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Campaign</div>
+                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Solo Mission</div>
+                <div className="text-[10px] text-stone-400 leading-relaxed">Execute tactical missions across multiple theaters. Briefing included.</div>
+                <div className="mt-3 text-[8px] text-orange-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
+              </button>
+
+              {/* Survival */}
+              <button
+                onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
+                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-red-900/30 hover:border-red-500/60 transition-all hover:scale-105 text-left"
+                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.2s', animationFillMode: 'both' }}
+              >
+                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-red-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                <div className="mb-3">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                </div>
+                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Survival</div>
+                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Endless Waves</div>
+                <div className="text-[10px] text-stone-400 leading-relaxed">Hold the line against escalating enemy waves. No extraction.</div>
+                <div className="mt-3 text-[8px] text-red-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
+              </button>
+
+              {/* Multiplayer */}
+              <button
+                onClick={() => { setShowModeSelect(false); setMpLobby(true); }}
+                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-blue-900/30 hover:border-blue-500/60 transition-all hover:scale-105 text-left"
+                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.3s', animationFillMode: 'both' }}
+              >
+                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                <div className="mb-3">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Multiplayer</div>
+                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Online Combat</div>
+                <div className="text-[10px] text-stone-400 leading-relaxed">Battle other operators in TDM, FFA, or 1v1 duels.</div>
+                <div className="mt-3 text-[8px] text-blue-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
+              </button>
+            </div>
+
+            {/* Player stats strip */}
+            <div className="flex items-center justify-center gap-6 text-[8px] text-stone-600 font-black tracking-widest uppercase" style={{ animation: 'modeCardIn 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
+              <span>Level <span className="text-orange-400">{progression.level}</span></span>
+              <span className="text-stone-700">|</span>
+              <span>Kills <span className="text-orange-400">{progression.totalKills}</span></span>
+              <span className="text-stone-700">|</span>
+              <span>Matches <span className="text-orange-400">{progression.matchesPlayed}</span></span>
+              <span className="text-stone-700">|</span>
+              <span>Spoils <span className="text-yellow-400">{progression.battleSpoils}</span></span>
+            </div>
+
+            {/* Exit button */}
+            {onExit && (
+              <button
+                onClick={() => onExit()}
+                className="mt-6 px-6 py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
+                style={{ animation: 'modeCardIn 0.7s ease-out', animationDelay: '0.5s', animationFillMode: 'both' }}
+              >
+                ← Exit to Main Menu
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Loadout screen — COD style arsenal/operator customization */}
       {showLoadout && (
         <LoadoutScreen
           progression={progression}
           loadout={loadout}
           onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowLoadout(false); setShowMapSelect(true); }}
           onProgressionChange={setProgression}
-          onExit={onExit}
+          onExit={() => { setShowLoadout(false); setShowModeSelect(true); }}
         />
       )}
       {showLoadout && (
@@ -742,13 +887,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 setMpGameOver(null);
                 setMpLobby(false);
                 setShowStats(false);
-                setShowLoadout(true);
+                setShowModeSelect(true);
                 setMpKillFeed([]);
                 setMpScores({});
               }}
               className="mt-6 px-8 py-2 bg-stone-900/80 hover:bg-orange-600/80 text-white text-xs font-black uppercase tracking-widest rounded border border-orange-500/50"
             >
-              Return to Base
+              ← Main Menu
             </button>
           </div>
         </div>
@@ -801,9 +946,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Mobile fullscreen + pause buttons — top-right floating, below radar */}
+      {/* Mobile pause/fullscreen buttons — top-right corner */}
       {isMobile && isLocked && !dead && (
-        <div className="absolute top-36 left-2 z-40 flex gap-2">
+        <div className="absolute top-2 right-2 z-40 flex gap-1.5">
           <button
             onClick={() => { setPaused(true); gameRef.current?.stop(); unlockPointer(); }}
             className="w-9 h-9 rounded-lg bg-stone-900/70 backdrop-blur-sm border border-stone-700/50 flex items-center justify-center text-stone-400 hover:text-orange-400 transition-colors"
@@ -1208,14 +1353,22 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Post-match stats screen */}
+      {/* After Action Report — COD-style post-match stats */}
       {dead && showStats && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-40 pointer-events-auto overflow-y-auto py-8" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
-          <div className="text-center max-w-lg px-4">
-            <div className={`font-black uppercase tracking-[0.3em] text-red-500 mb-2 ${isMobile ? 'text-4xl' : 'text-6xl'}`} style={{ textShadow: '0 0 25px rgba(239,68,68,0.6), 0 0 50px rgba(239,68,68,0.3)' }}>KIA</div>
-            <div className="text-sm text-stone-500 font-mono tracking-[0.2em] mb-8 uppercase">You were eliminated in action</div>
+          <style>{`
+            @keyframes xpFill { from { width: 0%; } }
+            @keyframes aarSlideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+          `}</style>
+          <div className="text-center max-w-lg px-4" style={{ animation: 'aarSlideIn 0.5s ease-out' }}>
+            {/* AAR Header */}
+            <div className="mb-6">
+              <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-1">AFTER ACTION REPORT</div>
+              <div className={`font-black uppercase tracking-[0.3em] text-red-500 ${isMobile ? 'text-4xl' : 'text-6xl'}`} style={{ textShadow: '0 0 25px rgba(239,68,68,0.6), 0 0 50px rgba(239,68,68,0.3)' }}>KIA</div>
+              <div className="text-sm text-stone-500 font-mono tracking-[0.2em] mt-1 uppercase">Eliminated in action — Wave {stats.wave}</div>
+            </div>
 
-            {/* Primary stats */}
+            {/* Primary stats — 3 large cards */}
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="bg-stone-900/80 backdrop-blur-sm rounded-xl p-3 border border-stone-700/50 shadow-lg">
                 <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase mb-1">Kills</div>
@@ -1231,7 +1384,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
             </div>
 
-            {/* Detailed breakdown */}
+            {/* Combat stats — 2x3 grid */}
             <div className="grid grid-cols-2 gap-2 mb-4 text-left">
               <div className="bg-stone-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-stone-800/60">
                 <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase">Accuracy</div>
@@ -1252,7 +1405,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 <div className="text-lg font-black text-red-500">{stats.damageTaken}</div>
               </div>
               <div className="bg-stone-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-stone-800/60">
-                <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase">Killstreak</div>
+                <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase">Best Streak</div>
                 <div className="text-lg font-black text-yellow-500">{stats.killstreak}</div>
               </div>
               <div className="bg-stone-900/60 backdrop-blur-sm rounded-lg p-2.5 border border-stone-800/60">
@@ -1261,25 +1414,47 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
             </div>
 
-            {/* XP breakdown */}
-            <div className="bg-stone-900/80 backdrop-blur-sm rounded-xl p-3 border border-orange-900/40 mb-6">
-              <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase mb-2">Rewards Earned</div>
-              <div className="flex justify-between text-xs text-stone-300 mb-1">
-                <span>Kills XP</span><span className="text-orange-400">+{stats.kills * 50}</span>
-              </div>
-              <div className="flex justify-between text-xs text-stone-300 mb-1">
-                <span>Score XP</span><span className="text-orange-400">+{stats.score * 2}</span>
-              </div>
-              <div className="flex justify-between text-xs text-stone-300 mb-1">
-                <span>Wave XP</span><span className="text-orange-400">+{stats.wave * 100}</span>
-              </div>
-              <div className="flex justify-between text-xs text-stone-300 mb-1">
-                <span>Battle Spoils</span><span className="text-yellow-400">+{Math.round(stats.score * 1.5 + stats.kills * 20)}</span>
-              </div>
-              <div className="border-t border-stone-700 mt-2 pt-2 flex justify-between text-sm font-black">
-                <span className="text-white">TOTAL XP</span><span className="text-orange-500" style={{ textShadow: '0 0 8px rgba(249,115,22,0.4)' }}>+{stats.kills * 50 + stats.score * 2 + stats.wave * 100}</span>
-              </div>
-            </div>
+            {/* XP Bar — COD style animated fill */}
+            {(() => {
+              const xpGained = stats.kills * 50 + stats.score * 2 + stats.wave * 100;
+              const spoilsGained = Math.round(stats.score * 1.5 + stats.kills * 20);
+              const currentLevelXp = progression.xp;
+              const xpForNext = progression.level * 500;
+              const xpIntoLevel = currentLevelXp % xpForNext;
+              const xpPct = Math.min(100, (xpIntoLevel / xpForNext) * 100);
+              return (
+                <div className="bg-stone-900/80 backdrop-blur-sm rounded-xl p-3 border border-orange-900/40 mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase">Level {progression.level}</div>
+                    <div className="text-[8px] text-orange-400 font-black tracking-widest">+{xpGained} XP</div>
+                  </div>
+                  <div className="w-full h-3 bg-stone-800 rounded-full overflow-hidden border border-stone-700/50 mb-1">
+                    <div
+                      className="h-full bg-gradient-to-r from-orange-600 to-orange-400 rounded-full transition-all duration-1000"
+                      style={{ width: `${xpPct}%`, animation: 'xpFill 1.2s ease-out', boxShadow: '0 0 8px rgba(249,115,22,0.5)' }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[8px] text-stone-600 font-bold">
+                    <span>{xpIntoLevel} XP</span>
+                    <span>{xpForNext} XP</span>
+                  </div>
+                  <div className="border-t border-stone-700 mt-2 pt-2 space-y-1">
+                    <div className="flex justify-between text-xs text-stone-300">
+                      <span>Kills XP</span><span className="text-orange-400">+{stats.kills * 50}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-stone-300">
+                      <span>Score XP</span><span className="text-orange-400">+{stats.score * 2}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-stone-300">
+                      <span>Wave XP</span><span className="text-orange-400">+{stats.wave * 100}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-stone-300">
+                      <span>Battle Spoils</span><span className="text-yellow-400">+{spoilsGained}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Daily challenges progress */}
             {progression.dailyChallenges.challenges.length > 0 && (
@@ -1332,13 +1507,14 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
             )}
 
-            <div className="flex gap-3 justify-center">
+            {/* Action buttons — COD style */}
+            <div className="flex gap-3 justify-center mt-6">
               {onExit && (
                 <button
-                  onClick={() => onExit()}
-                  className="px-8 py-2.5 bg-stone-900/80 hover:bg-red-600/80 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-red-500/40 transition-all hover:scale-105"
+                  onClick={() => { setDead(false); setShowStats(false); setShowModeSelect(true); }}
+                  className="px-8 py-3 bg-stone-900/80 hover:bg-red-600/80 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-red-500/40 transition-all hover:scale-105"
                 >
-                  Return to Base
+                  ← Main Menu
                 </button>
               )}
               <button
@@ -1348,9 +1524,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   setShowLoadout(true);
                   setStats({ kills: 0, shotsFired: 0, shotsHit: 0, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, ammo: 30, magSize: 30, weaponName: 'MP5 TACTICAL', weaponKey: 'smg', grenades: 3, wave: 1, enemiesAlive: 0, killstreak: 0, score: 0, headshots: 0, damageDealt: 0, damageTaken: 0, compassEnemy: null, crosshairSpread: 0, isLeaning: null, suppressed: false, radarBlips: [], radarObjective: null, uavActive: false, scoreMultiplier: 1, comboTimer: 0, isBossWave: false, bossHp: 0, bossMaxHp: 0, waveDamageTaken: 0, waveHeadshots: 0, waveStartTime: 0, isEliteWave: false, waveModifier: null, spectatorTarget: null, lowAmmo: false, dominationZones: [], safeZoneTimer: 0, currentMap: '', isADS: false });
                 }}
-                className="px-8 py-2.5 bg-orange-600/80 hover:bg-orange-600 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-orange-400/40 transition-all hover:scale-105"
+                className="px-12 py-3 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-black uppercase tracking-[0.3em] rounded-lg border border-orange-400/40 transition-all hover:scale-105 shadow-lg shadow-orange-600/30"
               >
-                Redeploy
+                Redeploy →
               </button>
               {onMatchEnd && (
                 <button
@@ -1388,9 +1564,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       </div>
 
-      {/* Top team status bar — reference style avatars + score (desktop only) */}
+      {/* Top team status bar — reference style avatars + score (desktop only, offset for minimap) */}
       {!isMobile && (
-      <div className="absolute top-3 left-0 right-0 z-20 px-4 pointer-events-none">
+      <div className="absolute top-3 left-36 right-4 z-20 pointer-events-none">
         <div className="flex items-center justify-between">
           {/* Friendly team */}
           <div className="flex items-center gap-1.5">
@@ -1434,8 +1610,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       </div>
       )}
 
-      {/* Kill feed — right side with slide-in animation (desktop: top-right, mobile: below radar) */}
-      <div className={`absolute z-20 flex flex-col gap-1.5 pointer-events-none items-end ${isMobile ? 'top-36 right-2' : 'top-4 right-4'}`}>
+      {/* Kill feed — COD style top-right (mobile: below pause buttons) */}
+      <div className={`absolute z-20 flex flex-col gap-1.5 pointer-events-none items-end ${isMobile ? 'top-12 right-2' : 'top-4 right-4'}`}>
         {missionName && isLocked && !showBriefing && (
           <div className="mb-1 bg-stone-950/70 backdrop-blur-sm rounded-lg border border-orange-500/20 px-3 py-1.5 shadow-lg shadow-black/40">
             <div className="text-[7px] text-stone-500 font-black tracking-[0.25em] uppercase mb-0.5">Objective</div>
@@ -1453,8 +1629,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         ))}
       </div>
 
-      {/* Bottom-left character status — reference style portrait + health/shield (mobile: top-left compact) */}
-      <div className={`absolute z-20 pointer-events-none ${isMobile ? 'top-2 left-2' : 'bottom-5 left-5'}`}>
+      {/* Bottom-left character status — COD style health/armor bottom-left (mobile: raised above joystick) */}
+      <div className={`absolute z-20 pointer-events-none ${isMobile ? 'bottom-[110px] left-3' : 'bottom-5 left-5'}`}>
         <div className={`flex items-center gap-3 bg-stone-950/60 backdrop-blur-md rounded-xl p-2.5 border border-stone-700/40 shadow-xl shadow-black/50 ${isMobile ? '!p-1.5 !gap-2' : ''}`}>
           {/* Character portrait */}
           <div className={`relative rounded-lg overflow-hidden border border-stone-600/40 ${isMobile ? 'w-8 h-8' : 'w-14 h-14'}`} style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}44, transparent)` }}>
@@ -1533,9 +1709,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       </div>
       )}
 
-      {/* Mobile compact weapon/ammo — top-right below radar */}
+      {/* Mobile compact weapon/ammo — COD style bottom-right, above fire button */}
       {isMobile && isLocked && !dead && (
-        <div className="absolute top-36 right-2 z-20 pointer-events-none">
+        <div className="absolute bottom-[110px] right-3 z-20 pointer-events-none">
           <div className="bg-stone-950/60 backdrop-blur-md rounded-lg px-2 py-1 border border-stone-700/40 text-right">
             {reloading ? (
               <div className="text-orange-400 text-[10px] font-black tracking-widest animate-pulse">RELOADING</div>
@@ -1584,9 +1760,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Minimap / Radar — refined with glow (mobile: smaller) */}
+      {/* Minimap / Radar — COD style top-left */}
       {isLocked && (
-        <div className="absolute top-3 right-3 z-20 pointer-events-none">
+        <div className="absolute top-3 left-3 z-20 pointer-events-none">
           <div className={`relative rounded-full bg-stone-950/80 backdrop-blur-sm border-2 border-stone-700/60 overflow-hidden shadow-lg shadow-black/50 ${isMobile ? 'w-20 h-20' : 'w-28 h-28'}`}>
             {/* Grid lines */}
             <div className="absolute top-1/2 left-0 w-full h-px bg-stone-700/30" />
@@ -2080,7 +2256,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               <div className="flex items-center gap-3">
                 {onExit && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); onExit(); }}
+                    onClick={(e) => { e.stopPropagation(); setShowBriefing(false); setShowModeSelect(true); }}
                     className="px-6 py-3 bg-stone-900/80 hover:bg-stone-800 text-stone-400 text-xs font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
                   >
                     Abort
@@ -2095,6 +2271,63 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   <div className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)' }} />
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* COD-style loading screen — deploying transition */}
+      {showLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 pointer-events-auto font-mono" style={{ animation: 'fadeInScale 0.3s ease-out' }}>
+          <style>{`
+            @keyframes loadingTipFade { 0% { opacity: 0; transform: translateY(10px); } 15% { opacity: 1; transform: translateY(0); } 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+            @keyframes loadingPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+          `}</style>
+          {/* Background — map preview gradient */}
+          <div className="absolute inset-0 opacity-20" style={{ background: 'radial-gradient(circle at 50% 40%, rgba(249,115,22,0.15), transparent 60%)' }} />
+          <div className="absolute inset-0 opacity-[0.03]" style={{
+            backgroundImage: 'linear-gradient(rgba(249,115,22,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.5) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+          }} />
+
+          <div className="relative z-10 text-center max-w-lg px-6">
+            {/* Deploying header */}
+            <div className="mb-8">
+              <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-2" style={{ animation: 'loadingPulse 1.5s ease-in-out infinite' }}>DEPLOYING TO</div>
+              <div className="text-3xl sm:text-4xl font-black text-orange-500 tracking-[0.2em]" style={{ textShadow: '0 0 25px rgba(249,115,22,0.5)' }}>
+                {missionName || BATTLEFIELDS[selectedMap].name}
+              </div>
+              <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mt-2">{missionType || 'Combat Mission'}</div>
+            </div>
+
+            {/* Loading bar */}
+            <div className="mb-6">
+              <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-stone-800">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-600 to-orange-400 rounded-full transition-all duration-200"
+                  style={{ width: `${loadingProgress}%`, boxShadow: '0 0 12px rgba(249,115,22,0.6)' }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5 text-[8px] text-stone-600 font-black tracking-widest uppercase">
+                <span>Loading Assets</span>
+                <span>{Math.round(loadingProgress)}%</span>
+              </div>
+            </div>
+
+            {/* Rotating tip */}
+            <div className="h-16 flex items-center justify-center">
+              <div key={loadingTip} className="text-xs text-stone-400 font-mono tracking-wide leading-relaxed" style={{ animation: 'loadingTipFade 2.5s ease-in-out' }}>
+                {loadingTip || 'Headshots deal 2.5x damage — aim for the head'}
+              </div>
+            </div>
+
+            {/* Loadout summary strip */}
+            <div className="flex items-center justify-center gap-3 mt-8 text-[8px] text-stone-600 font-black tracking-widest uppercase">
+              <span className="text-orange-400">{WEAPONS[loadout.primaryWeapon]?.name || 'SMG'}</span>
+              <span className="text-stone-700">|</span>
+              <span className="text-stone-400">{CHARACTERS[loadout.character]?.name || 'ASSAULT'}</span>
+              <span className="text-stone-700">|</span>
+              <span className="text-stone-400">{ARMORS[loadout.armor]?.name || 'LIGHT'}</span>
             </div>
           </div>
         </div>
@@ -2120,7 +2353,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </button>
               {onExit && (
                 <button
-                  onClick={() => onExit()}
+                  onClick={() => { setPaused(false); setShowModeSelect(true); gameRef.current?.stop(); unlockPointer(); }}
                   className="px-6 py-3 bg-stone-800/80 hover:bg-red-600/80 text-stone-300 hover:text-white text-xs font-black uppercase tracking-widest rounded-lg border border-stone-600/50 transition-all hover:scale-105"
                 >
                   Abort Mission
@@ -2490,10 +2723,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="flex gap-3 justify-center">
               {onExit && (
                 <button
-                  onClick={() => onExit()}
+                  onClick={() => { setMpGameOver(null); setShowStats(false); setShowModeSelect(true); }}
                   className="px-8 py-2.5 bg-stone-900/80 hover:bg-orange-600/80 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-orange-500/40 transition-all hover:scale-105"
                 >
-                  Return to Base
+                  ← Main Menu
                 </button>
               )}
             </div>
