@@ -347,7 +347,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="bg-[#050505] text-stone-100 font-mono selection:bg-orange-500/30 flex flex-col relative" style={{ height: '100dvh', overflow: view === 'lobby' || view === 'labs' || view === 'onboarding' ? 'auto' : 'hidden' }}>
-      <VibeAssistant />
+      {view !== 'playing' && view !== '3d-proto' && <VibeAssistant />}
       <main className="relative flex-1 flex flex-col">
         {view === 'boot' && (
           <BootSequence

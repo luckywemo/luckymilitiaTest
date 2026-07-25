@@ -2562,11 +2562,98 @@ export class FPSGame {
   }
 
   private playEnemyShootSound(pos: THREE.Vector3) {
-    this.playPositionalSound(pos, 140, 'sawtooth', 0.06, 0.1);
+    this.playPositionalSound(pos, 140, 'sawtooth', 0.12, 0.12);
   }
 
   private playFootstepSound(pos: THREE.Vector3) {
-    this.playPositionalSound(pos, 80, 'triangle', 0.03, 0.06);
+    this.playPositionalSound(pos, 80, 'triangle', 0.05, 0.08);
+  }
+
+  private playEnemyDeathSound(pos: THREE.Vector3) {
+    this.playPositionalSound(pos, 200, 'square', 0.1, 0.25);
+    setTimeout(() => { if (this.audioCtx) this.playPositionalSound(pos, 90, 'sawtooth', 0.08, 0.2); }, 80);
+  }
+
+  private playPlayerHurtSound() {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const vol = this.settings.sfxVolume * 0.12;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  }
+
+  private playEnemyAlertSound(pos: THREE.Vector3) {
+    this.playPositionalSound(pos, 440, 'sine', 0.08, 0.15);
+  }
+
+  private playGrenadeThrowSound() {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const vol = this.settings.sfxVolume * 0.08;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+  }
+
+  private playReloadClickSound() {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const vol = this.settings.sfxVolume * 0.05;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1200;
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.03);
+  }
+
+  private playJumpSound() {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const vol = this.settings.sfxVolume * 0.04;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  }
+
+  private playCrouchSound() {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const vol = this.settings.sfxVolume * 0.04;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(150, ctx.currentTime);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
   }
 
   private playHeartbeat() {
@@ -2604,7 +2691,7 @@ export class FPSGame {
     this.musicLayer = target;
 
     const ctx = this.audioCtx;
-    const vol = this.settings.sfxVolume * 0.03;
+    const vol = this.settings.sfxVolume * 0.008;
     const freqs: Record<typeof target, [number, number]> = {
       calm: [110, 165],
       tension: [130, 195],
@@ -2791,6 +2878,7 @@ export class FPSGame {
         if (enemy.hp <= 0 && !enemy.dead) {
           enemy.dead = true;
           enemy.deathTimer = 2.0;
+          this.playEnemyDeathSound(enemy.group.position.clone());
           this.stats.kills++;
           this.waveKillCount++;
           this.killstreak++;
@@ -3056,6 +3144,7 @@ export class FPSGame {
             enemy.dead = true;
             enemy.deathTimer = 2.0;
             enemy.deathDir = dir.clone();
+            this.playEnemyDeathSound(enemy.group.position.clone());
             this.stats.kills++;
             this.waveKillCount++;
             this.killstreak++;
@@ -3174,6 +3263,7 @@ export class FPSGame {
     this.reserveAmmo[this.currentWeapon] -= taken;
     this.reloading = false;
     this.updateStats();
+    this.playReloadClickSound();
     this.events.onReloadComplete?.();
   }
 
@@ -3244,10 +3334,10 @@ export class FPSGame {
   public setLocked(locked: boolean) { this.isLocked = locked; }
   public getScreenFlash(): { intensity: number; color: number } { return { intensity: this.screenFlashIntensity, color: this.screenFlashColor }; }
   public setLean(dir: 'left' | 'right' | null) { this.leanDir = dir; }
-  public touchJump() { this.tryJump(); }
+  public touchJump() { this.tryJump(); this.playJumpSound(); }
   public touchReload() { this.startReload(); }
-  public touchCrouch() { this.isCrouching = !this.isCrouching; }
-  public touchGrenade() { this.throwGrenade(); }
+  public touchCrouch() { this.isCrouching = !this.isCrouching; this.playCrouchSound(); }
+  public touchGrenade() { this.throwGrenade(); this.playGrenadeThrowSound(); }
   public touchSwitchWeapon() {
     const keys = Object.keys(this.ammo) as WeaponKey[];
     const idx = keys.indexOf(this.currentWeapon);
@@ -3342,6 +3432,7 @@ export class FPSGame {
       if (nearestEnemy.hp <= 0) {
         nearestEnemy.dead = true;
         nearestEnemy.deathTimer = 2.0;
+        this.playEnemyDeathSound(nearestEnemy.group.position.clone());
         this.stats.kills++;
         this.waveKillCount++;
         this.killstreak++;
@@ -3574,6 +3665,7 @@ export class FPSGame {
     this.events.onCombo?.(1);
     this.waveDamageTaken += dmg;
     this.suppressedTimer = 1.5;
+    this.playPlayerHurtSound();
     // Screen flash — red on damage
     this.screenFlashIntensity = 1;
     this.screenFlashColor = 0xff0000;
@@ -3962,7 +4054,7 @@ export class FPSGame {
     // Touch look input
     if (Math.abs(this.touchLookX) > 0.01 || Math.abs(this.touchLookY) > 0.01) {
       const sens = this.isADS ? this.settings.scopeSensitivity : this.settings.lookSensitivity;
-      const touchSens = 0.003 * sens;
+      const touchSens = (this.isADS ? 0.0015 : 0.004) * sens;
       this.yaw -= this.touchLookX * touchSens;
       this.pitch -= this.touchLookY * touchSens;
       this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
@@ -4194,6 +4286,7 @@ export class FPSGame {
           }
         }
       } else if (dist < (this.perk === 'ghost' ? 15 : 30)) {
+        if (enemy.state !== 'chase') this.playEnemyAlertSound(enemy.group.position.clone());
         enemy.state = 'chase';
       } else {
         if (enemy.state !== 'patrol') enemy.state = 'patrol';
@@ -4318,6 +4411,7 @@ export class FPSGame {
           enemy.hp = 0;
           enemy.dead = true;
           enemy.deathTimer = 1.0;
+          this.playEnemyDeathSound(enemy.group.position.clone());
           this.stats.kills++;
           this.waveKillCount++;
           this.score += 100;
