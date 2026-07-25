@@ -205,6 +205,14 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const [spectatorInfo, setSpectatorInfo] = useState<{ name: string; team: string } | null>(null);
   // Domination zones
   const [dominationZones, setDominationZones] = useState<DominationZoneUI[]>([]);
+  // Killcam state
+  const [showKillcam, setShowKillcam] = useState(false);
+  // Weapon swap animation state
+  const [weaponSwapAnim, setWeaponSwapAnim] = useState(false);
+  // Objective notification banner
+  const [objectiveBanner, setObjectiveBanner] = useState<string | null>(null);
+  // Audio context for hitmarker sounds
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const addFeed = (text: string) => {
     setFeed((prev) => [{ id: Date.now(), text }, ...prev].slice(0, 5));
@@ -222,8 +230,25 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         setHit(true);
         if (hs) { setHeadshot(true); addFeed('⚡ HEADSHOT'); }
         setTimeout(() => { setHit(false); setHeadshot(false); }, hs ? 300 : 100);
+        // Hitmarker audio — distinct pitch for headshot vs body shot
+        try {
+          if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const ctx = audioCtxRef.current;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.frequency.value = hs ? 1400 : 800;
+          osc.type = 'square';
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (hs ? 0.12 : 0.06));
+          osc.start(); osc.stop(ctx.currentTime + (hs ? 0.12 : 0.06));
+        } catch {}
       },
       onStatsUpdate: (newStats) => {
+        if (newStats.weaponKey !== stats.weaponKey) {
+          setWeaponSwapAnim(true);
+          setTimeout(() => setWeaponSwapAnim(false), 300);
+        }
         setStats(newStats);
         setReloading(prev => prev !== (newStats.ammo === 0) ? newStats.ammo === 0 : prev);
         setSafeZoneTimer(prev => prev !== newStats.safeZoneTimer ? newStats.safeZoneTimer : prev);
@@ -233,8 +258,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         setTimeout(() => setDamageDir(null), 600);
       },
       onDeath: () => {
-        setDead(true);
-        setShowStats(true);
+        // Show killcam first, then AAR after 2.5s
+        setShowKillcam(true);
+        setTimeout(() => {
+          setShowKillcam(false);
+          setDead(true);
+          setShowStats(true);
+        }, 2500);
         // Unlock pointer on mobile
         if (typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0)) {
           window.dispatchEvent(new Event('mobile-unlock'));
@@ -286,7 +316,11 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       },
       onWaveStart: (wave: number, obj?: WaveObjective) => {
         setWaveAnnounce(wave);
-        if (obj) setObjective(obj);
+        if (obj) {
+          setObjective(obj);
+          setObjectiveBanner(`NEW OBJECTIVE: ${obj.text}`);
+          setTimeout(() => setObjectiveBanner(null), 3000);
+        }
         setTimeout(() => setWaveAnnounce(null), 2500);
       },
       onReloadStart: () => setReloading(true),
@@ -306,8 +340,15 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       },
       onObjectiveUpdate: (obj: WaveObjective) => {
         setObjective({ ...obj });
-        if (obj.completed) addFeed('★ OBJECTIVE COMPLETE +500 ★');
-        else if (obj.failed) addFeed('✗ OBJECTIVE FAILED ✗');
+        if (obj.completed) {
+          addFeed('★ OBJECTIVE COMPLETE +500 ★');
+          setObjectiveBanner('SECTOR CLEARED');
+          setTimeout(() => setObjectiveBanner(null), 3000);
+        } else if (obj.failed) {
+          addFeed('✗ OBJECTIVE FAILED ✗');
+          setObjectiveBanner('OBJECTIVE FAILED');
+          setTimeout(() => setObjectiveBanner(null), 3000);
+        }
       },
       onCombo: (mult: number) => setComboMult(mult),
       onBossWave: (name: string) => {
@@ -1050,6 +1091,103 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           <style>{`
             @keyframes heartbeat { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
           `}</style>
+        </div>
+      )}
+
+      {/* Killcam overlay — COD-style death replay */}
+      {showKillcam && !dead && (
+        <div className="absolute inset-0 z-40 pointer-events-none" style={{ animation: 'fadeInScale 0.3s ease-out' }}>
+          <style>{`
+            @keyframes killcamScan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+            @keyframes killcamFlicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+          `}</style>
+          {/* Dark vignette */}
+          <div className="absolute inset-0 bg-black/40" />
+          {/* Scanline effect */}
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="absolute left-0 right-0 h-24 opacity-20" style={{ background: 'linear-gradient(180deg, transparent, rgba(239,68,68,0.6), transparent)', animation: 'killcamScan 2s linear infinite' }} />
+          </div>
+          {/* Red tint */}
+          <div className="absolute inset-0" style={{ boxShadow: 'inset 0 0 80px rgba(180,0,0,0.5)' }} />
+          {/* KILLCAM label */}
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 text-center" style={{ animation: 'killcamFlicker 0.5s ease-in-out infinite' }}>
+            <div className="text-[10px] text-red-400 font-black tracking-[0.5em] mb-2">▶ KILLCAM ◀</div>
+            <div className="text-2xl sm:text-3xl font-black text-red-500 tracking-[0.3em]" style={{ textShadow: '0 0 20px rgba(239,68,68,0.8)' }}>YOU WERE KILLED</div>
+            <div className="text-[10px] text-stone-400 font-mono tracking-widest mt-2 uppercase">Replaying last moments...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Objective notification banner — COD-style slide-in */}
+      {objectiveBanner && (
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+          <style>{`
+            @keyframes objBannerIn { 0% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.9); } 20% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-10px); } }
+          `}</style>
+          <div className="bg-stone-950/80 backdrop-blur-md border-l-4 border-orange-500 rounded-r-lg px-6 py-3 shadow-xl shadow-black/60" style={{ animation: 'objBannerIn 3s ease-out forwards' }}>
+            <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase mb-0.5">▼ Objective Update</div>
+            <div className="text-sm font-black text-white tracking-widest uppercase">{objectiveBanner}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Weapon swap animation — quick slide effect */}
+      {weaponSwapAnim && (
+        <div className="absolute bottom-1/3 right-1/4 z-30 pointer-events-none">
+          <style>{`
+            @keyframes weaponSwapIn { 0% { opacity: 0; transform: translateX(40px) rotate(-5deg); } 50% { opacity: 1; transform: translateX(0) rotate(0deg); } 100% { opacity: 0; transform: translateX(-20px) rotate(3deg); } }
+          `}</style>
+          <div className="text-2xl font-black text-orange-400 tracking-widest" style={{ animation: 'weaponSwapIn 0.3s ease-out forwards', textShadow: '0 0 12px rgba(249,115,22,0.6)' }}>
+            {stats.weaponName}
+          </div>
+        </div>
+      )}
+
+      {/* Scorestreak progress bar — COD-style */}
+      {isLocked && !dead && stats.killstreak >= 0 && (
+        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'bottom-[145px] right-3' : 'bottom-24 right-5'}`}>
+          <div className="bg-stone-950/60 backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-stone-700/40 shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-[7px] text-stone-500 font-black tracking-widest uppercase">Streak</span>
+              <span className="text-xs font-black text-orange-400">{stats.killstreak}</span>
+              <div className="w-16 h-1 bg-stone-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, (stats.killstreak / 10) * 100)}%`,
+                    background: stats.killstreak >= 7 ? 'linear-gradient(90deg, #ff00ff, #ff4444)' : stats.killstreak >= 5 ? 'linear-gradient(90deg, #ff8800, #ffaa00)' : stats.killstreak >= 3 ? 'linear-gradient(90deg, #f97316, #fbbf24)' : 'linear-gradient(90deg, #525252, #78716c)',
+                    boxShadow: stats.killstreak >= 5 ? '0 0 6px rgba(249,115,22,0.5)' : 'none',
+                  }}
+                />
+              </div>
+            </div>
+            {stats.killstreak >= 3 && stats.killstreak < 10 && (
+              <div className="text-[6px] text-stone-500 font-bold tracking-widest mt-0.5 text-right">
+                Next: {stats.killstreak < 5 ? 'RAMPAGE' : stats.killstreak < 7 ? 'UNSTOPPABLE' : 'GODLIKE'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Blood screen overlay — intensifies with recent damage */}
+      {isLocked && !dead && screenFlash && screenFlash.intensity > 0.3 && (
+        <div
+          className="absolute inset-0 pointer-events-none z-10 transition-opacity duration-500"
+          style={{
+            opacity: screenFlash.intensity * 0.6,
+            background: 'radial-gradient(ellipse at center, transparent 20%, rgba(120,0,0,0.7) 100%)',
+          }}
+        />
+      )}
+
+      {/* Low ammo warning — flashing red border on ammo counter */}
+      {isLocked && !dead && stats.lowAmmo && !reloading && (
+        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'bottom-[145px] right-3' : 'bottom-5 right-5'}`}>
+          <style>{`@keyframes lowAmmoFlash { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }`}</style>
+          <div className="text-[8px] text-red-500 font-black tracking-widest uppercase" style={{ animation: 'lowAmmoFlash 0.8s ease-in-out infinite' }}>
+            ⚠ LOW AMMO — PRESS R
+          </div>
         </div>
       )}
 
@@ -2693,13 +2831,28 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               const mvp = allPlayers.sort((a, b) => b.score - a.score)[0];
               if (!mvp) return null;
               return (
-                <div className="bg-stone-900/80 rounded-xl p-4 border border-yellow-500/40 mb-4" style={{ animation: 'fadeInScale 0.6s ease-out 0.3s both' }}>
-                  <div className="text-[8px] text-yellow-500 font-black tracking-[0.3em] uppercase mb-1">★ MVP ★</div>
-                  <div className="text-xl font-black text-white">{mvp.name || 'UNKNOWN'}</div>
+                <div className="relative bg-gradient-to-b from-yellow-950/40 to-stone-900/80 rounded-xl p-4 border-2 border-yellow-500/50 mb-4 overflow-hidden" style={{ animation: 'fadeInScale 0.6s ease-out 0.3s both', boxShadow: '0 0 20px rgba(250,204,21,0.2), 0 4px 12px rgba(0,0,0,0.5)' }}>
+                  <style>{`
+                    @keyframes mvpShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+                    @keyframes mvpGlow { 0%, 100% { box-shadow: 0 0 15px rgba(250,204,21,0.3); } 50% { box-shadow: 0 0 30px rgba(250,204,21,0.5); } }
+                  `}</style>
+                  {/* Shimmer top bar */}
+                  <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, transparent, #facc15, transparent)', backgroundSize: '200% 100%', animation: 'mvpShimmer 2s linear infinite' }} />
+                  {/* MVP badge */}
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#facc15" style={{ filter: 'drop-shadow(0 0 4px rgba(250,204,21,0.6))' }}>
+                      <path d="M12 2 L15 9 L22 9 L17 14 L19 21 L12 17 L5 21 L7 14 L2 9 L9 9 Z" />
+                    </svg>
+                    <div className="text-[10px] text-yellow-400 font-black tracking-[0.4em] uppercase" style={{ animation: 'mvpGlow 2s ease-in-out infinite' }}>MVP</div>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#facc15" style={{ filter: 'drop-shadow(0 0 4px rgba(250,204,21,0.6))' }}>
+                      <path d="M12 2 L15 9 L22 9 L17 14 L19 21 L12 17 L5 21 L7 14 L2 9 L9 9 Z" />
+                    </svg>
+                  </div>
+                  <div className="text-xl font-black text-yellow-300 tracking-wider" style={{ textShadow: '0 0 10px rgba(250,204,21,0.4)' }}>{mvp.name || 'UNKNOWN'}</div>
                   <div className="flex justify-center gap-4 mt-2">
-                    <div><span className="text-orange-500 font-black">{mvp.kills}</span> <span className="text-[8px] text-stone-500">KILLS</span></div>
-                    <div><span className="text-red-400 font-black">{mvp.deaths}</span> <span className="text-[8px] text-stone-500">DEATHS</span></div>
-                    <div><span className="text-yellow-400 font-black">{mvp.score}</span> <span className="text-[8px] text-stone-500">SCORE</span></div>
+                    <div><span className="text-orange-500 font-black text-lg">{mvp.kills}</span> <span className="text-[8px] text-stone-500 font-bold tracking-widest">KILLS</span></div>
+                    <div><span className="text-red-400 font-black text-lg">{mvp.deaths}</span> <span className="text-[8px] text-stone-500 font-bold tracking-widest">DEATHS</span></div>
+                    <div><span className="text-yellow-400 font-black text-lg">{mvp.score}</span> <span className="text-[8px] text-stone-500 font-bold tracking-widest">SCORE</span></div>
                   </div>
                 </div>
               );
@@ -2709,8 +2862,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             <div className="bg-stone-900/60 rounded-xl p-3 border border-stone-700/50 mb-6">
               <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase mb-2">Final Scores</div>
               {allPlayersSort(mpGameOver.scores).map((p, i) => (
-                <div key={p.id} className={`flex items-center gap-2 py-1 ${i === 0 ? 'border-b border-stone-800' : ''}`}>
-                  <span className="text-[8px] text-stone-600 font-black w-4">{i + 1}</span>
+                <div key={p.id} className={`flex items-center gap-2 py-1 ${i === 0 ? 'border-b border-yellow-700/40 bg-yellow-950/20 rounded' : ''}`}>
+                  <span className={`text-[8px] font-black w-4 ${i === 0 ? 'text-yellow-400' : 'text-stone-600'}`}>{i === 0 ? '★' : i + 1}</span>
                   <span className={`w-1.5 h-1.5 rounded-full ${p.team === 'alpha' ? 'bg-orange-500' : 'bg-cyan-400'}`} />
                   <span className="text-[10px] font-black text-white flex-1 text-left truncate">{p.name}</span>
                   <span className="text-[10px] font-black text-orange-400 w-8 text-right">{p.kills}</span>
