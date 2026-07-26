@@ -612,8 +612,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
     <div className="relative w-full bg-black overflow-hidden font-mono select-none" style={{ height: '100dvh' }}>
       {/* Multiplayer Lobby */}
       {mpLobby && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50">
-          <div className="w-full max-w-md p-6">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/95 z-50 overflow-y-auto py-4">
+          <div className="w-full max-w-md p-4 sm:p-6">
             <div className="text-center mb-6">
               <div className="text-[10px] text-stone-500 font-black tracking-[0.4em] mb-1">MULTIPLAYER</div>
               <div className="text-3xl font-black text-orange-500 tracking-[0.15em] drop-shadow-[0_0_15px_rgba(249,115,22,0.6)]">3D COMBAT</div>
@@ -776,44 +776,46 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 50% 30%, rgba(249,115,22,0.15), transparent 60%)' }} />
 
           {/* ─── TOP-LEFT: Player Profile Card (BO6 style) ─── */}
-          <div className="absolute top-4 left-4 z-20" style={{ animation: 'lobbySlideIn 0.5s ease-out' }}>
-            <div className="flex items-center gap-3 bg-stone-950/80 backdrop-blur-md rounded-xl p-3 border border-stone-700/40 shadow-xl shadow-black/50">
+          <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20" style={{ animation: 'lobbySlideIn 0.5s ease-out' }}>
+            <div className="flex items-center gap-2 sm:gap-3 bg-stone-950/80 backdrop-blur-md rounded-xl p-2 sm:p-3 border border-stone-700/40 shadow-xl shadow-black/50">
               {/* Rank insignia */}
-              <div className="relative w-14 h-14 rounded-lg flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}33, rgba(0,0,0,0.6))`, border: `2px solid ${CHAR_COLORS[loadout.character]}66` }}>
-                <svg width="32" height="32" viewBox="0 0 64 64">{CHAR_ICONS[loadout.character]}</svg>
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-orange-600 border-2 border-stone-900 flex items-center justify-center">
-                  <span className="text-[9px] font-black text-white leading-none">{progression.level}</span>
+              <div className="relative w-10 h-10 sm:w-14 sm:h-14 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}33, rgba(0,0,0,0.6))`, border: `2px solid ${CHAR_COLORS[loadout.character]}66` }}>
+                <svg width="24" height="24" viewBox="0 0 64 64" className="sm:w-8 sm:h-8">{CHAR_ICONS[loadout.character]}</svg>
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-orange-600 border-2 border-stone-900 flex items-center justify-center">
+                  <span className="text-[8px] sm:text-[9px] font-black text-white leading-none">{progression.level}</span>
                 </div>
               </div>
-              <div className="w-40">
-                <div className="text-[10px] text-stone-500 font-black tracking-widest uppercase">Operator</div>
-                <div className="text-sm font-black text-white tracking-wide truncate">{loadout.character.toUpperCase()}</div>
+              <div className="w-28 sm:w-40">
+                <div className="text-[8px] sm:text-[10px] text-stone-500 font-black tracking-widest uppercase">Operator</div>
+                <div className="text-xs sm:text-sm font-black text-white tracking-wide truncate">{loadout.character.toUpperCase()}</div>
                 {/* XP bar */}
-                <div className="mt-1.5 w-full h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                <div className="mt-1 sm:mt-1.5 w-full h-1 sm:h-1.5 bg-stone-800 rounded-full overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-orange-600 to-orange-400 rounded-full transition-all" style={{ width: `${Math.min(100, ((progression.xp % (progression.level * 500)) / (progression.level * 500)) * 100)}%` }} />
                 </div>
-                <div className="flex justify-between text-[7px] text-stone-600 font-bold mt-0.5">
+                <div className="flex justify-between text-[6px] sm:text-[7px] text-stone-600 font-bold mt-0.5">
                   <span>LVL {progression.level}</span>
-                  <span>{progression.xp % (progression.level * 500)} / {progression.level * 500} XP</span>
+                  <span className="hidden sm:inline">{progression.xp % (progression.level * 500)} / {progression.level * 500} XP</span>
+                  <span className="sm:hidden">{progression.xp % (progression.level * 500)}/{progression.level * 500}</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* ─── TOP-RIGHT: Quick Join + Settings (BO6 style) ─── */}
-          <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end" style={{ animation: 'lobbySlideRight 0.5s ease-out' }}>
+          <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex flex-col gap-1.5 sm:gap-2 items-end" style={{ animation: 'lobbySlideRight 0.5s ease-out' }}>
             <button
               onClick={() => { setShowModeSelect(false); setMpLobby(true); }}
-              className="flex items-center gap-2 px-4 py-2 bg-stone-950/80 hover:bg-blue-600/60 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest rounded-lg border border-blue-500/40 transition-all hover:scale-105 shadow-lg"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-950/80 hover:bg-blue-600/60 backdrop-blur-md text-white text-[9px] sm:text-[10px] font-black uppercase tracking-widest rounded-lg border border-blue-500/40 transition-all hover:scale-105 shadow-lg"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              Quick Join
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="sm:w-3.5 sm:h-3.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span className="hidden sm:inline">Quick Join</span>
+              <span className="sm:hidden">MP</span>
             </button>
             <button
               onClick={() => setShowSettings(true)}
-              className="px-3 py-1.5 bg-stone-950/60 hover:bg-stone-800 text-stone-400 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all"
+              className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-950/60 hover:bg-stone-800 text-stone-400 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all"
             >
-              ⚙ Settings
+              ⚙ <span className="hidden sm:inline">Settings</span>
             </button>
           </div>
 
@@ -828,7 +830,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
 
               {/* Mode cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 {/* Campaign */}
                 <button
                   onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
@@ -885,7 +887,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
 
               {/* Player stats strip */}
-              <div className="flex items-center justify-center gap-4 text-[8px] text-stone-600 font-black tracking-widest uppercase" style={{ animation: 'modeCardIn 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-[7px] sm:text-[8px] text-stone-600 font-black tracking-widest uppercase" style={{ animation: 'modeCardIn 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
                 <span>Kills <span className="text-orange-400">{progression.totalKills}</span></span>
                 <span className="text-stone-700">|</span>
                 <span>Matches <span className="text-orange-400">{progression.matchesPlayed}</span></span>
@@ -916,11 +918,11 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
 
           {/* ─── BOTTOM-RIGHT: Exit button ─── */}
-          <div className="absolute bottom-4 right-4 z-20" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
+          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-20" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
             {onExit && (
               <button
                 onClick={() => onExit()}
-                className="px-5 py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
+                className="px-3 sm:px-5 py-1.5 sm:py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
               >
                 ← Exit
               </button>
@@ -1574,7 +1576,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             @keyframes xpFill { from { width: 0%; } }
             @keyframes aarSlideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
           `}</style>
-          <div className="text-center max-w-lg px-4" style={{ animation: 'aarSlideIn 0.5s ease-out' }}>
+          <div className="text-center max-w-lg w-full px-3 sm:px-4" style={{ animation: 'aarSlideIn 0.5s ease-out' }}>
             {/* AAR Header */}
             <div className="mb-6">
               <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-1">AFTER ACTION REPORT</div>
@@ -2622,7 +2624,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             backgroundSize: '40px 40px',
           }} />
 
-          <div className="relative z-10 text-center max-w-lg px-6">
+          <div className="relative z-10 text-center max-w-lg w-full px-4 sm:px-6">
             {/* Deploying header */}
             <div className="mb-8">
               <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-2" style={{ animation: 'loadingPulse 1.5s ease-in-out infinite' }}>DEPLOYING TO</div>
@@ -2744,7 +2746,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       {/* Settings panel */}
       {showSettings && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50 pointer-events-auto" style={{ animation: 'fadeInScale 0.2s ease-out' }}>
-          <div className="bg-stone-900/90 backdrop-blur-md rounded-2xl border border-stone-700/50 p-6 w-80 shadow-2xl shadow-black/60 max-h-[90vh] overflow-y-auto">
+          <div className="bg-stone-900/90 backdrop-blur-md rounded-2xl border border-stone-700/50 p-4 sm:p-6 w-[90vw] max-w-sm sm:w-80 shadow-2xl shadow-black/60 max-h-[90vh] overflow-y-auto">
             <div className="text-lg font-black text-orange-500 tracking-[0.2em] mb-5 text-center" style={{ textShadow: '0 0 10px rgba(249,115,22,0.3)' }}>SETTINGS</div>
             <div className="space-y-4">
               <div>

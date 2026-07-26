@@ -162,21 +162,21 @@ const AccountSetupScreen: React.FC<{ address: string; onComplete: (name: string,
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center bg-[#050505] p-3 sm:p-6 lg:p-10 font-mono relative overflow-hidden">
-      <div className="w-full max-w-2xl space-y-8 relative z-10 bg-black/60 p-8 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl">
+      <div className="w-full max-w-2xl space-y-4 sm:space-y-6 lg:space-y-8 relative z-10 bg-black/60 p-4 sm:p-6 lg:p-8 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl">
         <div className="text-center space-y-2">
-          <h2 className="text-2xl lg:text-3xl font-black font-stencil text-white uppercase italic tracking-widest">INITIALIZE_OPERATOR</h2>
-          <p className="text-[10px] lg:text-xs text-stone-500 font-bold uppercase tracking-widest">Nexus_Access_Protocol_v4.0</p>
+          <h2 className="text-xl sm:text-2xl lg:text-3xl font-black font-stencil text-white uppercase italic tracking-widest">INITIALIZE_OPERATOR</h2>
+          <p className="text-[9px] sm:text-[10px] lg:text-xs text-stone-500 font-bold uppercase tracking-widest">Nexus_Access_Protocol_v4.0</p>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest px-1">Codename_Selection</label>
+            <label className="text-[9px] sm:text-[10px] font-black text-orange-500 uppercase tracking-widest px-1">Codename_Selection</label>
             <input 
               value={username}
               onChange={e => setUsername(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
               placeholder="ENTER_CODENAME"
               maxLength={16}
-              className="w-full bg-black/80 border border-stone-800 p-4 text-xl font-black text-white rounded outline-none focus:border-orange-500 transition-all placeholder:text-stone-800"
+              className="w-full bg-black/80 border border-stone-800 p-3 sm:p-4 text-lg sm:text-xl font-black text-white rounded outline-none focus:border-orange-500 transition-all placeholder:text-stone-800"
             />
             <div className="text-[8px] text-stone-600 font-bold uppercase flex justify-between px-1">
               <span>3-16 Characters // Alphanumeric</span>

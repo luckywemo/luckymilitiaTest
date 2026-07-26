@@ -280,7 +280,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
         </div>
         <div className="flex gap-2 sm:gap-3 items-center flex-wrap">
           {onExit && <button onClick={onExit} className="px-5 py-2.5 bg-stone-900/60 hover:bg-stone-800 text-stone-400 text-[10px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105 hover:text-stone-200">Back</button>}
-          <button onClick={() => onDeploy(currentLoadout)} className="relative px-10 py-2.5 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-lg border border-orange-400/40 transition-all hover:scale-105 overflow-hidden" style={{ boxShadow: '0 0 16px rgba(249,115,22,0.3), 0 2px 8px rgba(0,0,0,0.4)' }}>
+          <button onClick={() => onDeploy(currentLoadout)} className="relative px-6 sm:px-10 py-2 sm:py-2.5 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] rounded-lg border border-orange-400/40 transition-all hover:scale-105 overflow-hidden" style={{ boxShadow: '0 0 16px rgba(249,115,22,0.3), 0 2px 8px rgba(0,0,0,0.4)' }}>
             <span className="relative z-10">Deploy</span>
             <div className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)' }} />
           </button>
@@ -416,7 +416,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
           <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           {/* Weapons tab */}
           {tab === 'weapons' && (
-            <div className="grid grid-cols-2 gap-3 stagger" key="weapons-grid">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger" key="weapons-grid">
               {(Object.keys(WEAPONS) as WeaponKey[]).map((key) => {
                 const w = WEAPONS[key]; const unlocked = progression.unlockedWeapons.includes(key);
                 const canBuy = progression.level >= w.unlockLevel && progression.battleSpoils >= w.cost;
@@ -465,7 +465,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
 
           {/* Character tab */}
           {tab === 'character' && (
-            <div className="grid grid-cols-2 gap-3 stagger" key="char-grid">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger" key="char-grid">
               {(Object.keys(CHARACTERS) as CharacterClass[]).map((key) => {
                 const c = CHARACTERS[key]; const unlocked = progression.unlockedCharacters.includes(key);
                 const selected = currentLoadout.character === key;
@@ -504,7 +504,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
 
           {/* Armor tab */}
           {tab === 'armor' && (
-            <div className="grid grid-cols-2 gap-3 stagger" key="armor-grid">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger" key="armor-grid">
               {(Object.keys(ARMORS) as ArmorType[]).map((key) => {
                 const a = ARMORS[key]; const unlocked = progression.unlockedArmors.includes(key);
                 const canBuy = progression.level >= a.unlockLevel && progression.battleSpoils >= a.cost;
@@ -539,7 +539,7 @@ export const LoadoutScreen: React.FC<LoadoutScreenProps> = ({ progression, loado
           {/* Grenades tab */}
           {tab === 'grenades' && (
             <div key="grenades-content" style={{ animation: 'slideUp 0.3s ease-out' }}>
-              <div className="grid grid-cols-2 gap-3 stagger mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger mb-4">
                 {(Object.keys(GRENADES) as GrenadeType[]).map((key) => {
                   const g = GRENADES[key]; const unlocked = progression.unlockedGrenades.includes(key);
                   const canBuy = progression.level >= g.unlockLevel && progression.battleSpoils >= g.cost;
