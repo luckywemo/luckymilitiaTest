@@ -81,6 +81,8 @@ const ENEMY_CONFIG: Record<EnemyType, { hp: number; speed: number; damage: numbe
   bomber: { hp: 60, speed: 3.0, damage: 50, fireRate: 9999, range: 4, color: 0x3a2a0a, visorColor: 0xffff00, scale: 1.0, weapon: 'rifle' },
   medic: { hp: 120, speed: 2.0, damage: 5, fireRate: 1500, range: 18, color: 0x1a3a3a, visorColor: 0x00ffff, scale: 1.0, weapon: 'rifle' },
   boss: { hp: 800, speed: 2.0, damage: 35, fireRate: 600, range: 25, color: 0x8a1a1a, visorColor: 0xff0000, scale: 2.5, weapon: 'lmg' },
+  drone: { hp: 40, speed: 5.0, damage: 12, fireRate: 800, range: 22, color: 0x1a3a4a, visorColor: 0x00ffff, scale: 0.7, weapon: 'rifle' },
+  tank: { hp: 500, speed: 1.0, damage: 50, fireRate: 1500, range: 30, color: 0x3a3a2a, visorColor: 0xff4400, scale: 2.0, weapon: 'lmg' },
 };
 
 export class FPSGame {
@@ -1836,6 +1838,82 @@ export class FPSGame {
     const cfg = ENEMY_CONFIG[type];
     const s = cfg.scale;
 
+    // ── DRONE: flying quadcopter-style enemy ──
+    if (type === 'drone') {
+      const bodyMat = new THREE.MeshStandardMaterial({ color: cfg.color, roughness: 0.3, metalness: 0.8 });
+      const rotorMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5, metalness: 0.6 });
+      const ledMat = new THREE.MeshStandardMaterial({ color: cfg.visorColor, emissive: cfg.visorColor, emissiveIntensity: 1.0 });
+      const allMeshes: THREE.Mesh[] = [];
+      // Central body
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.3 * s, 0.12 * s, 0.3 * s), bodyMat);
+      body.position.y = 0;
+      body.userData.isHead = true;
+      allMeshes.push(body);
+      // Camera/eye underneath
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06 * s, 8, 8), ledMat);
+      eye.position.set(0, -0.08 * s, 0.1 * s);
+      eye.userData.isHead = true;
+      allMeshes.push(eye);
+      // Four arms with rotors
+      const armPositions = [[0.2, 0.2], [-0.2, 0.2], [0.2, -0.2], [-0.2, -0.2]];
+      for (const [ax, az] of armPositions) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.03 * s, 0.2 * s), bodyMat);
+        arm.position.set(ax * s, 0.02 * s, az * s);
+        arm.lookAt(0, 0.02 * s, 0);
+        allMeshes.push(arm);
+        const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.08 * s, 0.01 * s, 8), rotorMat);
+        rotor.position.set(ax * s, 0.08 * s, az * s);
+        allMeshes.push(rotor);
+      }
+      // LED strip
+      const led = new THREE.Mesh(new THREE.BoxGeometry(0.2 * s, 0.02 * s, 0.02 * s), ledMat);
+      led.position.set(0, 0.06 * s, -0.14 * s);
+      allMeshes.push(led);
+      allMeshes.forEach((m) => { m.castShadow = false; group.add(m); });
+      group.userData.meshes = allMeshes;
+      group.userData.headMesh = body;
+      return group;
+    }
+
+    // ── TANK: tracked mini-boss vehicle ──
+    if (type === 'tank') {
+      const hullMat = new THREE.MeshStandardMaterial({ color: cfg.color, roughness: 0.5, metalness: 0.6 });
+      const turretMat = new THREE.MeshStandardMaterial({ color: 0x2a2a1a, roughness: 0.4, metalness: 0.7 });
+      const trackMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9, metalness: 0.1 });
+      const ledMat = new THREE.MeshStandardMaterial({ color: cfg.visorColor, emissive: cfg.visorColor, emissiveIntensity: 0.8 });
+      const allMeshes: THREE.Mesh[] = [];
+      // Hull
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(1.2 * s, 0.5 * s, 1.8 * s), hullMat);
+      hull.position.y = 0.6 * s;
+      hull.userData.isHead = true;
+      allMeshes.push(hull);
+      // Turret
+      const turret = new THREE.Mesh(new THREE.BoxGeometry(0.8 * s, 0.4 * s, 1.0 * s), turretMat);
+      turret.position.set(0, 1.05 * s, 0);
+      turret.userData.isHead = true;
+      allMeshes.push(turret);
+      // Cannon
+      const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.06 * s, 1.2 * s, 8), turretMat);
+      cannon.rotation.x = Math.PI / 2;
+      cannon.position.set(0, 1.05 * s, 0.8 * s);
+      allMeshes.push(cannon);
+      // Tracks (left and right)
+      const trackL = new THREE.Mesh(new THREE.BoxGeometry(0.3 * s, 0.4 * s, 2.0 * s), trackMat);
+      trackL.position.set(-0.7 * s, 0.3 * s, 0);
+      allMeshes.push(trackL);
+      const trackR = new THREE.Mesh(new THREE.BoxGeometry(0.3 * s, 0.4 * s, 2.0 * s), trackMat);
+      trackR.position.set(0.7 * s, 0.3 * s, 0);
+      allMeshes.push(trackR);
+      // LED headlight
+      const led = new THREE.Mesh(new THREE.BoxGeometry(0.1 * s, 0.05 * s, 0.05 * s), ledMat);
+      led.position.set(0, 0.7 * s, 0.9 * s);
+      allMeshes.push(led);
+      allMeshes.forEach((m) => { m.castShadow = false; group.add(m); });
+      group.userData.meshes = allMeshes;
+      group.userData.headMesh = turret;
+      return group;
+    }
+
     // Materials — more realistic military colors
     const uniformMat = new THREE.MeshStandardMaterial({ color: cfg.color, roughness: 0.65, metalness: 0.25 });
     const vestMat = new THREE.MeshStandardMaterial({ color: 0x15150f, roughness: 0.45, metalness: 0.55 });
@@ -2121,6 +2199,8 @@ export class FPSGame {
       const radius = 15 + Math.random() * 5;
       const pos = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
       if (type === 'sniper') { pos.y = 4; pos.x = Math.sign(pos.x) * 18; }
+      if (type === 'drone') { pos.y = 6 + Math.random() * 3; }
+      if (type === 'tank') { pos.y = 0; pos.x = Math.sign(pos.x) * 20; }
       group.position.copy(pos);
       this.scene.add(group);
 
@@ -2131,10 +2211,11 @@ export class FPSGame {
       const headMesh = (group.userData.headMesh as THREE.Mesh) || meshes[0];
       const cfg = ENEMY_CONFIG[type];
       const isBoss = type === 'boss';
-      const isMiniBoss = !isBoss && this.wave % 5 === 0 && i === 1;
+      const isTankBoss = type === 'tank';
+      const isMiniBoss = !isBoss && !isTankBoss && this.wave % 5 === 0 && i === 1;
       // Elite enemy: 1-2 per wave on elite waves, not on boss waves
-      const isElite = !isBoss && !isMiniBoss && this.isEliteWave && (i === 0 || i === Math.floor(types.length / 2));
-      const hpMult = isBoss ? 1 : isMiniBoss ? 3 : isElite ? 2 : 1;
+      const isElite = !isBoss && !isMiniBoss && !isTankBoss && this.isEliteWave && (i === 0 || i === Math.floor(types.length / 2));
+      const hpMult = isBoss ? 1 : isTankBoss ? 1 : isMiniBoss ? 3 : isElite ? 2 : 1;
       const enemy: Enemy = {
         group, meshes, headMesh, hpBar,
         hp: Math.round(cfg.hp * hpMult * this.difficultyMult), maxHp: Math.round(cfg.hp * hpMult * this.difficultyMult), type,
@@ -2142,7 +2223,7 @@ export class FPSGame {
         strafeDir: Math.random() > 0.5 ? 1 : -1,
         hitFlash: 0, dead: false, deathTimer: 0, lastShot: 0,
         patrolTarget: new THREE.Vector3((Math.random() - 0.5) * 30, 0, (Math.random() - 0.5) * 30),
-        speed: cfg.speed * (0.8 + this.difficultyMult * 0.3) * (this.currentWaveModifier?.type === 'fastEnemies' ? 1.4 : 1), damage: Math.round((isBoss ? cfg.damage : isMiniBoss ? cfg.damage * 1.5 : isElite ? cfg.damage * 1.3 : cfg.damage) * this.difficultyMult * (this.currentWaveModifier?.type === 'enemyEnrage' ? 1.5 : 1)), fireRate: Math.round(cfg.fireRate / this.difficultyMult), optimalRange: cfg.range,
+        speed: cfg.speed * (0.8 + this.difficultyMult * 0.3) * (this.currentWaveModifier?.type === 'fastEnemies' ? 1.4 : 1), damage: Math.round((isBoss ? cfg.damage : isTankBoss ? cfg.damage : isMiniBoss ? cfg.damage * 1.5 : isElite ? cfg.damage * 1.3 : cfg.damage) * this.difficultyMult * (this.currentWaveModifier?.type === 'enemyEnrage' ? 1.5 : 1)), fireRate: Math.round(cfg.fireRate / this.difficultyMult), optimalRange: cfg.range,
         coverPos: null, isMiniBoss, reviveTimer: 0, downed: false, footstepTimer: 0, lastKnownPlayerPos: null,
         losCheckTimer: 0, hasLOS: false,
         deathDir: null, isBoss, enraged: false, weakSpotHit: false, isElite,
@@ -2151,6 +2232,10 @@ export class FPSGame {
         group.scale.multiplyScalar(cfg.scale);
         this.bossEnemy = enemy;
         this.events.onBossWave?.('WARLORD');
+      } else if (isTankBoss) {
+        group.scale.multiplyScalar(cfg.scale);
+        this.bossEnemy = enemy;
+        this.events.onBossWave?.('TANK');
       } else if (isMiniBoss) {
         group.scale.multiplyScalar(1.5);
       } else if (isElite) {
@@ -2163,6 +2248,11 @@ export class FPSGame {
             mat.emissiveIntensity = 0.4;
           }
         });
+      }
+      // Drones hover — add subtle floating animation via userData
+      if (type === 'drone') {
+        enemy.group.userData.hoverBase = pos.y;
+        enemy.group.userData.hoverOffset = Math.random() * Math.PI * 2;
       }
       this.enemies.push(enemy);
     });
@@ -2179,7 +2269,12 @@ export class FPSGame {
     if (wave >= 8) base.push('bomber');
     if (wave >= 9) base.push('medic');
     if (wave >= 10) base.push('grunt', 'rifleman', 'shotgunner', 'charger');
+    if (wave >= 11) base.push('drone', 'drone');
     if (wave >= 12) base.push('bomber', 'medic', 'charger');
+    if (wave >= 14) base.push('drone', 'drone', 'sniper');
+    if (wave >= 15) base.push('tank');
+    if (wave >= 18) base.push('drone', 'drone', 'drone', 'tank');
+    if (wave >= 20) base.push('tank', 'tank', 'drone', 'drone');
     // Mini-boss wave every 5th wave — first enemy is a boss
     if (wave % 5 === 0) base.unshift('heavy');
     // Apply map-specific enemy bias — duplicate biased types to increase their frequency
@@ -2391,7 +2486,7 @@ export class FPSGame {
     let lastWTap = 0;
     document.addEventListener('keydown', (e) => {
       // Prevent browser default for all game keys to avoid interference
-      const gameKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'KeyC', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyG', 'KeyV', 'Digit1', 'Digit2', 'Digit3', 'Tab'];
+      const gameKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'KeyC', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyG', 'KeyV', 'KeyH', 'Digit1', 'Digit2', 'Digit3', 'Tab'];
       if (gameKeys.includes(e.code)) e.preventDefault();
       if (this.dead) return;
       this.keys[e.code] = true;
@@ -2421,6 +2516,7 @@ export class FPSGame {
       if (e.code === 'KeyE') this.leanDir = 'right';
       if (e.code === 'Space') { this.tryJump(); }
       if (e.code === 'KeyV') this.meleeAttack();
+      if (e.code === 'KeyH') this.inspectWeapon();
     });
 
     document.addEventListener('keyup', (e) => {
@@ -3335,6 +3431,14 @@ export class FPSGame {
     }, 150);
   }
 
+  private inspecting = false;
+  private inspectTime = 0;
+  public inspectWeapon() {
+    if (this.dead || this.reloading) return;
+    this.inspecting = true;
+    this.inspectTime = 0;
+  }
+
   private getAimAssistCorrection(): { yaw: number; pitch: number } {
     if (this.aimAssistStrength <= 0) return { yaw: 0, pitch: 0 };
     const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
@@ -4098,15 +4202,31 @@ export class FPSGame {
     if (this.weaponGroup) {
       const adsX = this.isADS ? 0 : 0.16;
       const adsY = this.isADS ? -0.09 : -0.19;
+      // Weapon inspect animation — rotate gun for 2.5s
+      let inspectOffsetX = 0, inspectOffsetY = 0, inspectRotY = 0, inspectRotZ = 0;
+      if (this.inspecting) {
+        this.inspectTime += 0.016;
+        const t = this.inspectTime;
+        if (t < 2.5) {
+          const phase = t / 2.5;
+          inspectOffsetX = Math.sin(phase * Math.PI) * 0.15;
+          inspectOffsetY = Math.sin(phase * Math.PI) * 0.1;
+          inspectRotY = Math.sin(phase * Math.PI) * 0.8;
+          inspectRotZ = Math.sin(phase * Math.PI) * 0.3;
+        } else {
+          this.inspecting = false;
+          this.inspectTime = 0;
+        }
+      }
       this.weaponGroup.position.set(
-        adsX + swayX + this.weaponSwayX,
-        adsY - this.recoil * 0.2 + bob + swayY + this.weaponSwayY + reloadDipY,
+        adsX + swayX + this.weaponSwayX + inspectOffsetX,
+        adsY - this.recoil * 0.2 + bob + swayY + this.weaponSwayY + reloadDipY + inspectOffsetY,
         -0.32 - this.recoil * 0.8
       );
       this.weaponGroup.rotation.set(
         this.recoil * 0.5 + reloadRotX + breathRotX,
-        this.isADS ? 0 : 0.06 + this.weaponSwayX * 0.5,
-        -0.04 + swayX * 2 + this.weaponSwayY + breathRotZ
+        this.isADS ? 0 : 0.06 + this.weaponSwayX * 0.5 + inspectRotY,
+        -0.04 + swayX * 2 + this.weaponSwayY + breathRotZ + inspectRotZ
       );
     }
 
@@ -4238,6 +4358,12 @@ export class FPSGame {
           }
         }
         return;
+      }
+      // Drone hover animation
+      if (enemy.type === 'drone' && enemy.group.userData.hoverBase !== undefined) {
+        const t = performance.now() * 0.001 + (enemy.group.userData.hoverOffset || 0);
+        enemy.group.position.y = enemy.group.userData.hoverBase + Math.sin(t * 2) * 0.5;
+        enemy.group.rotation.z = Math.sin(t * 1.5) * 0.1;
       }
       const dist = this.camera.position.distanceTo(enemy.group.position);
       const toPlayer = new THREE.Vector3().subVectors(this.camera.position, enemy.group.position).normalize();

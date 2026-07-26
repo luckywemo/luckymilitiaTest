@@ -204,7 +204,7 @@ export const WEAPON_CATEGORIES: { key: WeaponCategory; label: string; icon: stri
   { key: 'energy', label: 'ENERGY', icon: '⚡', description: 'Advanced plasma weaponry' },
 ];
 
-export type EnemyType = 'grunt' | 'rifleman' | 'shotgunner' | 'heavy' | 'sniper' | 'charger' | 'bomber' | 'medic' | 'boss';
+export type EnemyType = 'grunt' | 'rifleman' | 'shotgunner' | 'heavy' | 'sniper' | 'charger' | 'bomber' | 'medic' | 'boss' | 'drone' | 'tank';
 
 export interface FPSGameStats {
   kills: number;
@@ -523,6 +523,31 @@ export const UPGRADES: Record<UpgradeType, UpgradeConfig> = {
 
 // ─── PLAYER PROGRESSION ───
 
+export interface LoginStreak {
+  lastLogin: string;
+  currentStreak: number;
+  lastClaimed: string;
+  totalLogins: number;
+}
+
+export interface WeeklyChallenge {
+  id: string;
+  description: string;
+  target: number;
+  reward: number;
+  type: 'headshots' | 'melee' | 'waves' | 'kills' | 'matches' | 'score';
+}
+
+export interface WeeklyChallengeState {
+  weekStart: string;
+  challenges: { challenge: WeeklyChallenge; progress: number; completed: boolean }[];
+}
+
+export interface PrestigeInfo {
+  level: number;
+  badges: string[];
+}
+
 export interface PlayerProgression {
   level: number;
   xp: number;
@@ -539,6 +564,13 @@ export interface PlayerProgression {
   bestWave: number;
   weaponKills: Partial<Record<WeaponKey, number>>;
   dailyChallenges: DailyChallengeState;
+  loginStreak: LoginStreak;
+  weeklyChallenges: WeeklyChallengeState;
+  prestige: PrestigeInfo;
+  hasSeenTutorial: boolean;
+  totalHeadshots: number;
+  totalDeaths: number;
+  totalMeleeKills: number;
 }
 
 export const DEFAULT_PROGRESSION: PlayerProgression = {
@@ -557,6 +589,13 @@ export const DEFAULT_PROGRESSION: PlayerProgression = {
   bestWave: 1,
   weaponKills: {},
   dailyChallenges: { date: '', challenges: [] },
+  loginStreak: { lastLogin: '', currentStreak: 0, lastClaimed: '', totalLogins: 0 },
+  weeklyChallenges: { weekStart: '', challenges: [] },
+  prestige: { level: 0, badges: [] },
+  hasSeenTutorial: false,
+  totalHeadshots: 0,
+  totalDeaths: 0,
+  totalMeleeKills: 0,
 };
 
 export function xpForLevel(level: number): number {
@@ -714,6 +753,102 @@ export function getDailyChallenges(): { challenge: DailyChallenge; progress: num
   return selected.map(challenge => ({ challenge, progress: 0, completed: false }));
 }
 
+// ─── WEEKLY CHALLENGES ───
+
+export const WEEKLY_CHALLENGE_POOL: WeeklyChallenge[] = [
+  { id: 'wk_hs50', description: 'Get 50 headshots this week', target: 50, reward: 1000, type: 'headshots' },
+  { id: 'wk_hs100', description: 'Get 100 headshots this week', target: 100, reward: 2000, type: 'headshots' },
+  { id: 'wk_melee20', description: 'Melee 20 enemies this week', target: 20, reward: 800, type: 'melee' },
+  { id: 'wk_kills200', description: 'Get 200 kills this week', target: 200, reward: 1500, type: 'kills' },
+  { id: 'wk_kills500', description: 'Get 500 kills this week', target: 500, reward: 3000, type: 'kills' },
+  { id: 'wk_wave15', description: 'Reach wave 15', target: 15, reward: 1200, type: 'waves' },
+  { id: 'wk_matches10', description: 'Play 10 matches this week', target: 10, reward: 600, type: 'matches' },
+  { id: 'wk_score10k', description: 'Earn 10,000 score this week', target: 10000, reward: 2000, type: 'score' },
+];
+
+export function getWeekStart(): string {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day;
+  const sunday = new Date(now.getFullYear(), now.getMonth(), diff);
+  return sunday.toDateString();
+}
+
+export function getWeeklyChallenges(): { challenge: WeeklyChallenge; progress: number; completed: boolean }[] {
+  const weekStart = getWeekStart();
+  const seed = weekStart.charCodeAt(0) + weekStart.charCodeAt(1) + weekStart.charCodeAt(2);
+  const pool = [...WEEKLY_CHALLENGE_POOL];
+  const selected: WeeklyChallenge[] = [];
+  for (let i = 0; i < 4; i++) {
+    const idx = (seed + i * 5) % pool.length;
+    selected.push(pool.splice(idx, 1)[0]);
+  }
+  return selected.map(challenge => ({ challenge, progress: 0, completed: false }));
+}
+
+// ─── LOGIN STREAK REWARDS ───
+
+export const LOGIN_REWARDS: { day: number; spoils: number; label: string }[] = [
+  { day: 1, spoils: 50, label: 'Day 1 — 50 Spoils' },
+  { day: 2, spoils: 75, label: 'Day 2 — 75 Spoils' },
+  { day: 3, spoils: 100, label: 'Day 3 — 100 Spoils' },
+  { day: 4, spoils: 150, label: 'Day 4 — 150 Spoils' },
+  { day: 5, spoils: 200, label: 'Day 5 — 200 Spoils' },
+  { day: 6, spoils: 300, label: 'Day 6 — 300 Spoils' },
+  { day: 7, spoils: 500, label: 'Day 7 — 500 Spoils + BONUS CRATE' },
+];
+
+export function claimLoginReward(p: PlayerProgression): { progression: PlayerProgression; reward: { spoils: number; day: number } | null } {
+  const today = new Date().toDateString();
+  if (p.loginStreak.lastClaimed === today) return { progression: p, reward: null };
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  const newStreak = p.loginStreak.lastLogin === yesterday ? p.loginStreak.currentStreak + 1 : 1;
+  const dayIndex = Math.min(newStreak - 1, LOGIN_REWARDS.length - 1);
+  const reward = LOGIN_REWARDS[dayIndex];
+  const updated: PlayerProgression = {
+    ...p,
+    loginStreak: {
+      lastLogin: today,
+      currentStreak: newStreak,
+      lastClaimed: today,
+      totalLogins: p.loginStreak.totalLogins + 1,
+    },
+    battleSpoils: p.battleSpoils + reward.spoils,
+  };
+  return { progression: updated, reward: { spoils: reward.spoils, day: newStreak } };
+}
+
+// ─── PRESTIGE SYSTEM ───
+
+export const MAX_LEVEL = 50;
+export const PRESTIGE_BADGES = ['🥉', '🥈', '🥇', '💎', '👑', '🔥', '⭐', '🏆'];
+
+export function canPrestige(p: PlayerProgression): boolean {
+  return p.level >= MAX_LEVEL;
+}
+
+export function doPrestige(p: PlayerProgression): PlayerProgression {
+  if (!canPrestige(p)) return p;
+  const badgeIndex = Math.min(p.prestige.level, PRESTIGE_BADGES.length - 1);
+  return {
+    ...DEFAULT_PROGRESSION,
+    battleSpoils: p.battleSpoils + 1000,
+    totalKills: p.totalKills,
+    totalScore: p.totalScore,
+    totalHeadshots: p.totalHeadshots,
+    totalDeaths: p.totalDeaths,
+    totalMeleeKills: p.totalMeleeKills,
+    matchesPlayed: p.matchesPlayed,
+    bestWave: p.bestWave,
+    weaponKills: p.weaponKills,
+    prestige: {
+      level: p.prestige.level + 1,
+      badges: [...p.prestige.badges, PRESTIGE_BADGES[badgeIndex]],
+    },
+    hasSeenTutorial: true,
+  };
+}
+
 // ─── ENEMY CONFIG ───
 
 export interface EnemyConfig {
@@ -738,6 +873,8 @@ export const ENEMY_CONFIG: Record<EnemyType, EnemyConfig> = {
   bomber: { type: 'bomber', name: 'BOMBER', hp: 60, damage: 60, speed: 3, fireRate: 9999, color: 0x4a2a0a, scale: 1 },
   medic: { type: 'medic', name: 'MEDIC', hp: 80, damage: 5, speed: 2.5, fireRate: 2000, color: 0x2a4a2a, scale: 1 },
   boss: { type: 'boss', name: 'WARLORD', hp: 800, damage: 35, speed: 2, fireRate: 600, color: 0x8a1a1a, scale: 2.5, isBoss: true },
+  drone: { type: 'drone', name: 'COMBAT DRONE', hp: 40, damage: 12, speed: 5, fireRate: 800, color: 0x1a3a4a, scale: 0.7 },
+  tank: { type: 'tank', name: 'TANK', hp: 500, damage: 50, speed: 1, fireRate: 1500, color: 0x3a3a2a, scale: 2, isBoss: true },
 };
 
 // ─── WEAPON MASTERY ───

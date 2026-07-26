@@ -2,8 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FPSGame } from './FPSGame';
 import { LoadoutScreen } from './LoadoutScreen';
 import { MultiplayerClient, type GameMode } from './MultiplayerClient';
+import { DailyRewards } from '../components/DailyRewards';
+import Leaderboard from '../components/Leaderboard';
+import { PrestigePanel } from '../components/PrestigePanel';
+import { TutorialOverlay } from '../components/TutorialOverlay';
+import { WeeklyChallenges } from '../components/WeeklyChallenges';
 import type { FPSGameStats, EnemyType, ScorePopup, GameSettings, LoadoutConfig, PlayerProgression, DamageNumber, HitMarker, WaveObjective, KillstreakRewardType, Achievement, WaveModifier, DominationZoneUI, MapType } from './types';
-import { DEFAULT_SETTINGS, DEFAULT_LOADOUT, loadProgression, saveProgression, addXp, KILLSTREAK_REWARDS, getDailyChallenges, WEAPON_MASTERY, QUICK_CHAT_OPTIONS, ARMORS, WEAPONS, CHARACTERS, GRENADES, PERKS, BATTLEFIELDS } from './types';
+import { DEFAULT_SETTINGS, DEFAULT_LOADOUT, loadProgression, saveProgression, addXp, xpForLevel, KILLSTREAK_REWARDS, getDailyChallenges, getWeeklyChallenges, getWeekStart, claimLoginReward, WEAPON_MASTERY, QUICK_CHAT_OPTIONS, ARMORS, WEAPONS, CHARACTERS, GRENADES, PERKS, BATTLEFIELDS, MAX_LEVEL, PRESTIGE_BADGES, canPrestige, doPrestige } from './types';
 
 interface Game3DProps {
   onExit?: () => void;
@@ -29,6 +34,8 @@ const ENEMY_LABELS: Record<EnemyType, string> = {
   bomber: 'BOMBER',
   medic: 'MEDIC',
   boss: 'WARLORD',
+  drone: 'DRONE',
+  tank: 'TANK',
 };
 
 // ─── Mobile HUD icon SVGs ───
@@ -171,6 +178,12 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const [combatEngaged, setCombatEngaged] = useState(false);
   const [showSafeZoneLoadout, setShowSafeZoneLoadout] = useState(false);
   const [killstreakBanner, setKillstreakBanner] = useState<string | null>(null);
+  const [showDailyRewards, setShowDailyRewards] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showPrestige, setShowPrestige] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showWeekly, setShowWeekly] = useState(false);
+  const [loginRewardToast, setLoginRewardToast] = useState<string | null>(null);
   const wakeLockRef = useRef<any>(null);
   const [loadout, setLoadout] = useState<LoadoutConfig>(DEFAULT_LOADOUT);
   const [progression, setProgression] = useState<PlayerProgression>(() => loadProgression());
@@ -182,6 +195,24 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   useEffect(() => { loadoutRef.current = loadout; }, [loadout]);
   useEffect(() => { progressionRef.current = progression; }, [progression]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  // Auto-claim login reward on mount
+  useEffect(() => {
+    const { progression: updated, reward } = claimLoginReward(progressionRef.current);
+    if (reward) {
+      saveProgression(updated);
+      setProgression(updated);
+      setLoginRewardToast(`Daily login: Day ${reward.day} — +${reward.spoils} Spoils!`);
+      setTimeout(() => setLoginRewardToast(null), 5000);
+    }
+  }, []);
+
+  // Show tutorial on first play
+  useEffect(() => {
+    if (!progressionRef.current.hasSeenTutorial) {
+      setShowTutorial(true);
+    }
+  }, []);
   const moveJoyRef = useRef<{ id: number | null; startX: number; startY: number; baseX: number; baseY: number }>({ id: null, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const lookJoyRef = useRef<{ id: number | null; lastX: number; lastY: number; startY: number; startTime: number }>({ id: null, lastX: 0, lastY: 0, startY: 0, startTime: 0 });
   const lastMoveTapRef = useRef(0);
@@ -308,7 +339,25 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             addFeed(`★ DAILY CHALLENGE COMPLETE +${c.challenge.reward} ★`);
           }
         });
-        const updated = { ...newP, battleSpoils: newP.battleSpoils + spoilsGained, totalKills: newP.totalKills + s.kills, totalScore: newP.totalScore + s.score, matchesPlayed: newP.matchesPlayed + 1, bestWave: Math.max(newP.bestWave, s.wave), weaponKills, dailyChallenges: dailyState };
+        // Update weekly challenges
+        const currentWeek = getWeekStart();
+        let weeklyState = newP.weeklyChallenges;
+        if (weeklyState.weekStart !== currentWeek) {
+          weeklyState = { weekStart: currentWeek, challenges: getWeeklyChallenges() };
+        }
+        weeklyState.challenges.forEach(c => {
+          if (c.completed) return;
+          if (c.challenge.type === 'headshots') c.progress = Math.min(c.challenge.target, c.progress + s.headshots);
+          else if (c.challenge.type === 'kills') c.progress = Math.min(c.challenge.target, c.progress + s.kills);
+          else if (c.challenge.type === 'waves') c.progress = Math.min(c.challenge.target, c.progress + s.wave);
+          else if (c.challenge.type === 'matches') c.progress = Math.min(c.challenge.target, c.progress + 1);
+          else if (c.challenge.type === 'score') c.progress = Math.min(c.challenge.target, c.progress + s.score);
+          if (c.progress >= c.challenge.target) {
+            c.completed = true;
+            addFeed(`★ WEEKLY CHALLENGE COMPLETE +${c.challenge.reward} ★`);
+          }
+        });
+        const updated = { ...newP, battleSpoils: newP.battleSpoils + spoilsGained, totalKills: newP.totalKills + s.kills, totalScore: newP.totalScore + s.score, matchesPlayed: newP.matchesPlayed + 1, bestWave: Math.max(newP.bestWave, s.wave), weaponKills, dailyChallenges: dailyState, weeklyChallenges: weeklyState, totalHeadshots: newP.totalHeadshots + s.headshots, totalDeaths: newP.totalDeaths + 1, totalMeleeKills: newP.totalMeleeKills + (s.kills > 0 ? 0 : 0) };
         saveProgression(updated);
         setProgression(updated);
       },
@@ -953,16 +1002,63 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             </div>
           </div>
 
-          {/* ─── BOTTOM-RIGHT: Exit button ─── */}
-          <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-20" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
-            {onExit && (
+          {/* ─── BOTTOM: XP bar + meta buttons ─── */}
+          <div className="absolute bottom-0 left-0 right-0 z-20 px-3 sm:px-4 pb-3 sm:pb-4" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
+            {/* XP Bar */}
+            <div className="flex items-center gap-2 sm:gap-3 mb-2 max-w-2xl mx-auto">
+              <div className="flex items-center gap-1.5">
+                {progression.prestige.level > 0 && (
+                  <span className="text-sm sm:text-base">{PRESTIGE_BADGES[Math.min(progression.prestige.level - 1, PRESTIGE_BADGES.length - 1)]}</span>
+                )}
+                <span className="text-[9px] sm:text-[10px] font-black text-orange-400 tracking-widest">LV{progression.level}</span>
+              </div>
+              <div className="flex-1 h-2.5 bg-stone-900 rounded-full overflow-hidden border border-stone-700/50">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all"
+                  style={{ width: `${Math.min(100, (progression.xp / xpForLevel(progression.level)) * 100)}%` }}
+                />
+              </div>
+              <span className="text-[8px] sm:text-[9px] text-stone-500 font-mono whitespace-nowrap">{progression.xp}/{xpForLevel(progression.level)} XP</span>
+              <div className="flex items-center gap-1 text-yellow-400">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15 9L22 9L17 14L19 21L12 17L5 21L7 14L2 9L9 9L12 2Z"/></svg>
+                <span className="text-[9px] sm:text-[10px] font-black">{progression.battleSpoils.toLocaleString()}</span>
+              </div>
+            </div>
+            {/* Meta buttons */}
+            <div className="flex items-center justify-center gap-1.5 sm:gap-2 flex-wrap">
               <button
-                onClick={() => onExit()}
-                className="px-3 sm:px-5 py-1.5 sm:py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
+                onClick={() => setShowDailyRewards(true)}
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-950/80 hover:bg-orange-600/40 text-stone-400 hover:text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 hover:border-orange-500/40 transition-all"
               >
-                ← Exit
+                🎁 <span className="hidden sm:inline">Daily</span>
               </button>
-            )}
+              <button
+                onClick={() => setShowWeekly(true)}
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-950/80 hover:bg-blue-600/40 text-stone-400 hover:text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 hover:border-blue-500/40 transition-all"
+              >
+                📋 <span className="hidden sm:inline">Weekly</span>
+              </button>
+              <button
+                onClick={() => setShowLeaderboard(true)}
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-950/80 hover:bg-yellow-600/40 text-stone-400 hover:text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 hover:border-yellow-500/40 transition-all"
+              >
+                🏆 <span className="hidden sm:inline">Ranks</span>
+              </button>
+              <button
+                onClick={() => setShowPrestige(true)}
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-950/80 hover:bg-purple-600/40 text-stone-400 hover:text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 hover:border-purple-500/40 transition-all"
+              >
+                {canPrestige(progression) ? '⭐ ' : '🎖️ '}<span className="hidden sm:inline">Prestige</span>
+              </button>
+              {onExit && (
+                <button
+                  onClick={() => onExit()}
+                  className="px-2.5 sm:px-3 py-1 sm:py-1.5 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all"
+                >
+                  ← <span className="hidden sm:inline">Exit</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1845,6 +1941,20 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   Submit Stats
                 </button>
               )}
+              <button
+                onClick={() => {
+                  const text = `🎮 LUCKY MILITIA — Match Results\n\n💀 Kills: ${stats.kills}\n🎯 Headshots: ${stats.headshots}\n🔥 Best Streak: ${stats.killstreak}\n📊 Score: ${stats.score}\n🌊 Wave: ${stats.wave}\n🔫 Weapon: ${stats.weaponName}\n⭐ Level: ${progression.level}${progression.prestige.level > 0 ? ' (P' + progression.prestige.level + ')' : ''}\n\nPlay now: https://luckymilitia.xyz`;
+                  if (navigator.share) {
+                    navigator.share({ title: 'Lucky Militia — Match Results', text }).catch(() => {});
+                  } else {
+                    navigator.clipboard?.writeText(text);
+                    addFeed('★ MATCH RESULTS COPIED TO CLIPBOARD ★');
+                  }
+                }}
+                className="px-6 py-2.5 bg-blue-600/60 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-widest rounded-lg border border-blue-400/40 transition-all hover:scale-105"
+              >
+                📤 Share
+              </button>
             </div>
           </div>
         </div>
@@ -3197,6 +3307,70 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         @keyframes ammoPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
         @keyframes hitDirPulse { 0% { opacity: 1; transform: rotate(var(--dir)) scale(1.2); } 100% { opacity: 0; transform: rotate(var(--dir)) scale(1); } }
       `}</style>
+
+      {/* Login reward toast */}
+      {loginRewardToast && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] pointer-events-none" style={{ animation: 'fadeInScale 0.5s ease-out' }}>
+          <div className="bg-stone-950/90 backdrop-blur-md rounded-xl px-6 py-4 border border-orange-500/40 text-center">
+            <div className="text-3xl mb-2">🎁</div>
+            <div className="text-sm text-orange-400 font-black tracking-widest">{loginRewardToast}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Daily rewards overlay */}
+      {showDailyRewards && (
+        <DailyRewards
+          progression={progression}
+          onProgressionChange={setProgression}
+          onClose={() => setShowDailyRewards(false)}
+        />
+      )}
+
+      {/* Leaderboard overlay */}
+      {showLeaderboard && (
+        <div className="absolute inset-0 bg-black/95 z-[60] pointer-events-auto" style={{ animation: 'fadeInScale 0.3s ease-out' }}>
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              onClick={() => setShowLeaderboard(false)}
+              className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-400 text-xs font-black uppercase tracking-widest rounded-lg border border-stone-700 transition-all"
+            >
+              ✕ Close
+            </button>
+          </div>
+          <Leaderboard activeAddress="" />
+        </div>
+      )}
+
+      {/* Prestige panel overlay */}
+      {showPrestige && (
+        <PrestigePanel
+          progression={progression}
+          onProgressionChange={setProgression}
+          onClose={() => setShowPrestige(false)}
+        />
+      )}
+
+      {/* Tutorial overlay */}
+      {showTutorial && (
+        <TutorialOverlay
+          isMobile={isMobile}
+          onComplete={() => {
+            setShowTutorial(false);
+            const updated = { ...progressionRef.current, hasSeenTutorial: true };
+            saveProgression(updated);
+            setProgression(updated);
+          }}
+        />
+      )}
+
+      {/* Weekly challenges overlay */}
+      {showWeekly && (
+        <WeeklyChallenges
+          progression={progression}
+          onClose={() => setShowWeekly(false)}
+        />
+      )}
     </div>
   );
 };
