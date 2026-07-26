@@ -281,6 +281,7 @@ export interface GameSettings {
   joystickSize: number;
   tiltLook: boolean;
   tiltSensitivity: number;
+  hudPreset: 'standard' | 'classic' | 'inverted' | 'magnified' | 'essentials';
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -299,6 +300,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   joystickSize: 1.0,
   tiltLook: false,
   tiltSensitivity: 1.0,
+  hudPreset: 'standard',
 };
 
 export interface DamageNumber {

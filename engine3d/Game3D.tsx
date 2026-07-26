@@ -47,6 +47,8 @@ const icons = {
   leanLeft: <g fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6L4 12L8 18"/><path d="M4 12H16"/><path d="M20 6V18"/></g>,
   leanRight: <g fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 6L20 12L16 18"/><path d="M20 12H8"/><path d="M4 6V18"/></g>,
   gear: <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15C19.8 15.8 19.4 16.6 18.6 16.8L17.4 17.1C17.1 17.7 16.7 18.2 16.2 18.7L16.6 19.9C17.1 20.7 16.4 21.5 15.7 21.2L14.6 20.6C14 20.9 13.4 21.1 12.7 21.2L12.3 22.5C12.1 23.3 11 23.3 10.7 22.5L10.3 21.2C9.7 21.1 9.1 20.9 8.5 20.6L7.4 21.2C6.6 21.5 5.9 20.7 6.3 19.9L6.8 18.7C6.3 18.2 5.9 17.7 5.6 17.1L4.4 16.8C3.6 16.6 3.2 15.8 3.6 15L4.6 14.3C4.5 13.8 4.5 13.2 4.6 12.7L3.6 12C3.2 11.2 3.6 10.4 4.4 10.2L5.6 9.9C5.9 9.3 6.3 8.8 6.8 8.3L6.4 7.1C5.9 6.3 6.6 5.5 7.3 5.8L8.4 6.4C9 6.1 9.6 5.9 10.3 5.8L10.7 4.5C10.9 3.7 12 3.7 12.3 4.5L12.7 5.8C13.3 5.9 13.9 6.1 14.5 6.4L15.6 5.8C16.4 5.5 17.1 6.3 16.7 7.1L16.2 8.3C16.7 8.8 17.1 9.3 17.4 9.9L18.6 10.2C19.4 10.4 19.8 11.2 19.4 12L18.4 12.7C18.5 13.2 18.5 13.8 18.4 14.3L19.4 15Z"/></g>,
+  sprint: <g fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 4C13 5.1 13.9 6 15 6C16.1 6 17 5.1 17 4"/><path d="M5 12L9 8L13 12L9 18L13 22"/><path d="M9 8L5 4"/><path d="M15 14L19 10L22 13"/></g>,
+  emote: <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14C8 14 9.5 16 12 16C14.5 16 16 14 16 14"/><circle cx="9" cy="9" r="0.5" fill="currentColor"/><circle cx="15" cy="9" r="0.5" fill="currentColor"/></g>,
 };
 
 const CHAR_COLORS: Record<string, string> = {
@@ -731,6 +733,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 DEPLOY
               </button>
               <button
+                onClick={() => { setMpLobby(false); setShowLoadout(true); }}
+                disabled={!mpClientRef.current}
+                className="px-4 py-2 bg-stone-800 hover:bg-orange-600/80 disabled:bg-stone-900 disabled:text-stone-600 text-white text-xs font-black uppercase tracking-widest rounded border border-orange-500/40 transition-colors"
+              >
+                LOADOUT
+              </button>
+              <button
                 onClick={() => {
                   mpClientRef.current?.destroy();
                   mpClientRef.current = null;
@@ -748,13 +757,16 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* COD-style Mode Select — first screen */}
+      {/* COD-style Mode Select — BO6 lobby layout */}
       {showModeSelect && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50 pointer-events-auto font-mono overflow-y-auto py-8" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
+        <div className="absolute inset-0 flex flex-col bg-black z-50 pointer-events-auto font-mono overflow-hidden" style={{ animation: 'fadeInScale 0.4s ease-out' }}>
           <style>{`
             @keyframes modeCardIn { 0% { opacity: 0; transform: translateY(30px) scale(0.95); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
             @keyframes modeGlow { 0%, 100% { box-shadow: 0 0 12px rgba(249,115,22,0.2); } 50% { box-shadow: 0 0 24px rgba(249,115,22,0.4); } }
             @keyframes modePulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+            @keyframes lobbySlideIn { 0% { opacity: 0; transform: translateX(-20px); } 100% { opacity: 1; transform: translateX(0); } }
+            @keyframes lobbySlideRight { 0% { opacity: 0; transform: translateX(20px); } 100% { opacity: 1; transform: translateX(0); } }
+            @keyframes lobbySlideUp { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
           `}</style>
           {/* Background grid */}
           <div className="absolute inset-0 opacity-[0.03]" style={{
@@ -763,90 +775,154 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           }} />
           <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 50% 30%, rgba(249,115,22,0.15), transparent 60%)' }} />
 
-          <div className="relative z-10 text-center max-w-2xl w-full px-6">
-            {/* Title */}
-            <div className="mb-8" style={{ animation: 'modeCardIn 0.4s ease-out' }}>
-              <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-2" style={{ animation: 'modePulse 2s ease-in-out infinite' }}>SELECT GAME MODE</div>
-              <div className="text-4xl sm:text-5xl font-black text-orange-500 tracking-[0.2em]" style={{ textShadow: '0 0 30px rgba(249,115,22,0.5)' }}>LUCKY MILITIA</div>
-              <div className="w-32 h-px bg-gradient-to-r from-orange-500/60 to-transparent mx-auto mt-3" />
-            </div>
-
-            {/* Mode cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-              {/* Campaign */}
-              <button
-                onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
-                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-orange-900/30 hover:border-orange-500/60 transition-all hover:scale-105 text-left"
-                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.1s', animationFillMode: 'both' }}
-              >
-                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-orange-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
-                <div className="mb-3">
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-                  </svg>
+          {/* ─── TOP-LEFT: Player Profile Card (BO6 style) ─── */}
+          <div className="absolute top-4 left-4 z-20" style={{ animation: 'lobbySlideIn 0.5s ease-out' }}>
+            <div className="flex items-center gap-3 bg-stone-950/80 backdrop-blur-md rounded-xl p-3 border border-stone-700/40 shadow-xl shadow-black/50">
+              {/* Rank insignia */}
+              <div className="relative w-14 h-14 rounded-lg flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${CHAR_COLORS[loadout.character]}33, rgba(0,0,0,0.6))`, border: `2px solid ${CHAR_COLORS[loadout.character]}66` }}>
+                <svg width="32" height="32" viewBox="0 0 64 64">{CHAR_ICONS[loadout.character]}</svg>
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-orange-600 border-2 border-stone-900 flex items-center justify-center">
+                  <span className="text-[9px] font-black text-white leading-none">{progression.level}</span>
                 </div>
-                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Campaign</div>
-                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Solo Mission</div>
-                <div className="text-[10px] text-stone-400 leading-relaxed">Execute tactical missions across multiple theaters. Briefing included.</div>
-                <div className="mt-3 text-[8px] text-orange-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
-              </button>
-
-              {/* Survival */}
-              <button
-                onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
-                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-red-900/30 hover:border-red-500/60 transition-all hover:scale-105 text-left"
-                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.2s', animationFillMode: 'both' }}
-              >
-                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-red-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
-                <div className="mb-3">
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                  </svg>
+              </div>
+              <div className="w-40">
+                <div className="text-[10px] text-stone-500 font-black tracking-widest uppercase">Operator</div>
+                <div className="text-sm font-black text-white tracking-wide truncate">{loadout.character.toUpperCase()}</div>
+                {/* XP bar */}
+                <div className="mt-1.5 w-full h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-orange-600 to-orange-400 rounded-full transition-all" style={{ width: `${Math.min(100, ((progression.xp % (progression.level * 500)) / (progression.level * 500)) * 100)}%` }} />
                 </div>
-                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Survival</div>
-                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Endless Waves</div>
-                <div className="text-[10px] text-stone-400 leading-relaxed">Hold the line against escalating enemy waves. No extraction.</div>
-                <div className="mt-3 text-[8px] text-red-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
-              </button>
-
-              {/* Multiplayer */}
-              <button
-                onClick={() => { setShowModeSelect(false); setMpLobby(true); }}
-                className="group relative p-6 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-blue-900/30 hover:border-blue-500/60 transition-all hover:scale-105 text-left"
-                style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.3s', animationFillMode: 'both' }}
-              >
-                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
-                <div className="mb-3">
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
+                <div className="flex justify-between text-[7px] text-stone-600 font-bold mt-0.5">
+                  <span>LVL {progression.level}</span>
+                  <span>{progression.xp % (progression.level * 500)} / {progression.level * 500} XP</span>
                 </div>
-                <div className="text-lg font-black text-white tracking-wider uppercase mb-1">Multiplayer</div>
-                <div className="text-[10px] text-stone-500 font-bold tracking-widest uppercase mb-2">Online Combat</div>
-                <div className="text-[10px] text-stone-400 leading-relaxed">Battle other operators in TDM, FFA, or 1v1 duels.</div>
-                <div className="mt-3 text-[8px] text-blue-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Select</div>
-              </button>
+              </div>
             </div>
+          </div>
 
-            {/* Player stats strip */}
-            <div className="flex items-center justify-center gap-6 text-[8px] text-stone-600 font-black tracking-widest uppercase" style={{ animation: 'modeCardIn 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
-              <span>Level <span className="text-orange-400">{progression.level}</span></span>
-              <span className="text-stone-700">|</span>
-              <span>Kills <span className="text-orange-400">{progression.totalKills}</span></span>
-              <span className="text-stone-700">|</span>
-              <span>Matches <span className="text-orange-400">{progression.matchesPlayed}</span></span>
-              <span className="text-stone-700">|</span>
-              <span>Spoils <span className="text-yellow-400">{progression.battleSpoils}</span></span>
+          {/* ─── TOP-RIGHT: Quick Join + Settings (BO6 style) ─── */}
+          <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end" style={{ animation: 'lobbySlideRight 0.5s ease-out' }}>
+            <button
+              onClick={() => { setShowModeSelect(false); setMpLobby(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-stone-950/80 hover:bg-blue-600/60 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest rounded-lg border border-blue-500/40 transition-all hover:scale-105 shadow-lg"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Quick Join
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="px-3 py-1.5 bg-stone-950/60 hover:bg-stone-800 text-stone-400 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all"
+            >
+              ⚙ Settings
+            </button>
+          </div>
+
+          {/* ─── CENTER: Mode cards ─── */}
+          <div className="flex-1 flex items-center justify-center px-4 overflow-y-auto py-8">
+            <div className="relative z-10 text-center max-w-2xl w-full">
+              {/* Title */}
+              <div className="mb-6" style={{ animation: 'modeCardIn 0.4s ease-out' }}>
+                <div className="text-[10px] text-stone-500 font-black tracking-[0.5em] mb-2" style={{ animation: 'modePulse 2s ease-in-out infinite' }}>SELECT GAME MODE</div>
+                <div className="text-3xl sm:text-5xl font-black text-orange-500 tracking-[0.2em]" style={{ textShadow: '0 0 30px rgba(249,115,22,0.5)' }}>LUCKY MILITIA</div>
+                <div className="w-32 h-px bg-gradient-to-r from-orange-500/60 to-transparent mx-auto mt-3" />
+              </div>
+
+              {/* Mode cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                {/* Campaign */}
+                <button
+                  onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
+                  className="group relative p-5 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-orange-900/30 hover:border-orange-500/60 transition-all hover:scale-105 text-left"
+                  style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.1s', animationFillMode: 'both' }}
+                >
+                  <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-orange-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                  <div className="mb-3">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                  </div>
+                  <div className="text-base font-black text-white tracking-wider uppercase mb-1">Campaign</div>
+                  <div className="text-[9px] text-stone-500 font-bold tracking-widest uppercase mb-2">Solo Mission</div>
+                  <div className="text-[10px] text-stone-400 leading-relaxed">Execute tactical missions across multiple theaters. Briefing included.</div>
+                  <div className="mt-3 text-[8px] text-orange-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Deploy</div>
+                </button>
+
+                {/* Survival */}
+                <button
+                  onClick={() => { setShowModeSelect(false); setShowLoadout(true); }}
+                  className="group relative p-5 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-red-900/30 hover:border-red-500/60 transition-all hover:scale-105 text-left"
+                  style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.2s', animationFillMode: 'both' }}
+                >
+                  <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-red-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                  <div className="mb-3">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                  </div>
+                  <div className="text-base font-black text-white tracking-wider uppercase mb-1">Survival</div>
+                  <div className="text-[9px] text-stone-500 font-bold tracking-widest uppercase mb-2">Endless Waves</div>
+                  <div className="text-[10px] text-stone-400 leading-relaxed">Hold the line against escalating enemy waves. No extraction.</div>
+                  <div className="mt-3 text-[8px] text-red-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Deploy</div>
+                </button>
+
+                {/* Multiplayer */}
+                <button
+                  onClick={() => { setShowModeSelect(false); setMpLobby(true); }}
+                  className="group relative p-5 bg-gradient-to-b from-stone-900/80 to-black/60 rounded-xl border border-blue-900/30 hover:border-blue-500/60 transition-all hover:scale-105 text-left"
+                  style={{ animation: 'modeCardIn 0.5s ease-out', animationDelay: '0.3s', animationFillMode: 'both' }}
+                >
+                  <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-500" style={{ animation: 'modePulse 1.5s ease-in-out infinite' }} />
+                  <div className="mb-3">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                  </div>
+                  <div className="text-base font-black text-white tracking-wider uppercase mb-1">Multiplayer</div>
+                  <div className="text-[9px] text-stone-500 font-bold tracking-widest uppercase mb-2">Online Combat</div>
+                  <div className="text-[10px] text-stone-400 leading-relaxed">Battle other operators in TDM, FFA, or 1v1 duels.</div>
+                  <div className="mt-3 text-[8px] text-blue-400 font-black tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity">▶ Deploy</div>
+                </button>
+              </div>
+
+              {/* Player stats strip */}
+              <div className="flex items-center justify-center gap-4 text-[8px] text-stone-600 font-black tracking-widest uppercase" style={{ animation: 'modeCardIn 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
+                <span>Kills <span className="text-orange-400">{progression.totalKills}</span></span>
+                <span className="text-stone-700">|</span>
+                <span>Matches <span className="text-orange-400">{progression.matchesPlayed}</span></span>
+                <span className="text-stone-700">|</span>
+                <span>Best Wave <span className="text-orange-400">{progression.bestWave}</span></span>
+                <span className="text-stone-700">|</span>
+                <span>Spoils <span className="text-yellow-400">{progression.battleSpoils}</span></span>
+              </div>
             </div>
+          </div>
 
-            {/* Exit button */}
+          {/* ─── BOTTOM-LEFT: Challenges tracker (BO6 style expandable) ─── */}
+          <div className="absolute bottom-4 left-4 z-20 max-w-xs" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.3s', animationFillMode: 'both' }}>
+            <div className="bg-stone-950/80 backdrop-blur-md rounded-xl p-3 border border-stone-700/40 shadow-xl shadow-black/50">
+              <div className="text-[8px] text-stone-500 font-black tracking-[0.3em] uppercase mb-2">▼ Daily Challenges</div>
+              {progression.dailyChallenges.challenges.slice(0, 3).map((c, i) => (
+                <div key={i} className="mb-1.5 last:mb-0">
+                  <div className="flex justify-between text-[9px] text-stone-300 mb-0.5">
+                    <span className={`truncate ${c.completed ? 'text-green-400 line-through' : ''}`}>{c.challenge.description}</span>
+                    <span className="text-yellow-400 ml-2 shrink-0">+{c.challenge.reward}</span>
+                  </div>
+                  <div className="w-full h-1 bg-stone-800 rounded-full overflow-hidden">
+                    <div className={`h-full ${c.completed ? 'bg-green-500' : 'bg-blue-500'} transition-all rounded-full`} style={{ width: `${Math.min(100, (c.progress / c.challenge.target) * 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ─── BOTTOM-RIGHT: Exit button ─── */}
+          <div className="absolute bottom-4 right-4 z-20" style={{ animation: 'lobbySlideUp 0.6s ease-out', animationDelay: '0.4s', animationFillMode: 'both' }}>
             {onExit && (
               <button
                 onClick={() => onExit()}
-                className="mt-6 px-6 py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
-                style={{ animation: 'modeCardIn 0.7s ease-out', animationDelay: '0.5s', animationFillMode: 'both' }}
+                className="px-5 py-2 bg-stone-900/60 hover:bg-stone-800 text-stone-500 text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all hover:scale-105"
               >
-                ← Exit to Main Menu
+                ← Exit
               </button>
             )}
           </div>
@@ -858,7 +934,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         <LoadoutScreen
           progression={progression}
           loadout={loadout}
-          onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowLoadout(false); setShowMapSelect(true); }}
+          onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowLoadout(false); if (mpClientRef.current) { setMpLobby(true); } else { setShowMapSelect(true); } }}
           onProgressionChange={setProgression}
           onExit={() => { setShowLoadout(false); setShowModeSelect(true); }}
         />
@@ -1594,6 +1670,53 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               );
             })()}
 
+            {/* Medals / Achievements earned — COD style */}
+            {(() => {
+              const earnedMedals: { icon: string; name: string; desc: string }[] = [];
+              if (stats.headshots >= 10) earnedMedals.push({ icon: '🎯', name: 'HEADHUNTER', desc: '10+ headshots' });
+              if (stats.killstreak >= 5) earnedMedals.push({ icon: '🔥', name: 'RAMPAGE', desc: '5 killstreak' });
+              if (stats.killstreak >= 10) earnedMedals.push({ icon: '⚡', name: 'GODLIKE', desc: '10 killstreak' });
+              if (stats.wave >= 10) earnedMedals.push({ icon: '🌊', name: 'SURVIVOR', desc: 'Reached wave 10' });
+              if (stats.wave >= 20) earnedMedals.push({ icon: '🎖️', name: 'VETERAN', desc: 'Reached wave 20' });
+              if (stats.shotsFired > 0 && (stats.shotsHit / stats.shotsFired) >= 0.8) earnedMedals.push({ icon: '🔫', name: 'SHARPSHOOTER', desc: '80%+ accuracy' });
+              if (stats.damageTaken === 0 && stats.kills > 0) earnedMedals.push({ icon: '🛡️', name: 'UNTOUCHABLE', desc: 'No damage taken' });
+              if (stats.kills >= 50) earnedMedals.push({ icon: '💯', name: 'CENTURION', desc: '50+ kills' });
+              if (earnedMedals.length === 0) return null;
+              return (
+                <div className="bg-stone-900/80 rounded-xl p-3 border border-yellow-900/40 mb-4" style={{ animation: 'aarSlideIn 0.6s ease-out 0.3s both' }}>
+                  <div className="text-[8px] text-yellow-500 font-black tracking-widest mb-2 uppercase">▼ Medals Earned</div>
+                  <div className="flex flex-wrap gap-2">
+                    {earnedMedals.map((m, i) => (
+                      <div key={i} className="flex items-center gap-1.5 bg-stone-800/60 rounded-lg px-2 py-1.5 border border-yellow-800/30" style={{ animation: `aarSlideIn 0.4s ease-out ${0.4 + i * 0.1}s both` }}>
+                        <span className="text-lg">{m.icon}</span>
+                        <div>
+                          <div className="text-[9px] font-black text-yellow-400 tracking-wider uppercase">{m.name}</div>
+                          <div className="text-[7px] text-stone-500">{m.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Match Bonus XP — COD style completion reward */}
+            {(() => {
+              const matchBonus = 500 + stats.wave * 50;
+              return (
+                <div className="bg-gradient-to-r from-orange-950/40 to-stone-900/80 rounded-xl p-3 border border-orange-800/30 mb-4 flex items-center justify-between" style={{ animation: 'aarSlideIn 0.5s ease-out 0.2s both' }}>
+                  <div className="flex items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#f97316"><path d="M12 2L15 9L22 9L17 14L19 21L12 17L5 21L7 14L2 9L9 9L12 2Z"/></svg>
+                    <div>
+                      <div className="text-[8px] text-stone-500 font-black tracking-widest uppercase">Match Bonus</div>
+                      <div className="text-[9px] text-stone-400">Completion reward</div>
+                    </div>
+                  </div>
+                  <div className="text-xl font-black text-orange-400" style={{ textShadow: '0 0 8px rgba(249,115,22,0.4)' }}>+{matchBonus} XP</div>
+                </div>
+              );
+            })()}
+
             {/* Daily challenges progress */}
             {progression.dailyChallenges.challenges.length > 0 && (
               <div className="bg-stone-900/80 rounded p-3 border border-blue-900/50 mb-4 text-left">
@@ -1639,6 +1762,16 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                         </>
                       )}
                       {!nextMastery && <div className="text-[8px] text-yellow-500 mt-0.5">★ MAX MASTERY ACHIEVED ★</div>}
+                      {/* Weapon XP bar — separate from player XP */}
+                      <div className="mt-2 pt-2 border-t border-stone-700/50">
+                        <div className="flex justify-between text-[8px] text-stone-500 font-bold mb-1">
+                          <span>WEAPON XP</span>
+                          <span className="text-orange-400">+{stats.kills * 30} WXP</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-stone-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-blue-600 to-cyan-400 rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, ((kills % 100) / 100) * 100)}%`, animation: 'xpFill 1s ease-out' }} />
+                        </div>
+                      </div>
                     </>
                   );
                 })()}
@@ -1864,6 +1997,37 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
+      {/* Scorestreak reward icons — COD mobile style, above weapon panel */}
+      {isLocked && !dead && (
+        <div className={`absolute z-20 pointer-events-none flex gap-1.5 ${isMobile ? 'bottom-[145px] right-3' : 'bottom-[90px] right-5'}`}>
+          {Object.values(KILLSTREAK_REWARDS).map((reward) => {
+            const earned = stats.killstreak >= reward.requiredStreak;
+            const progress = Math.min(1, stats.killstreak / reward.requiredStreak);
+            return (
+              <div key={reward.key} className={`relative rounded-lg border transition-all ${earned ? 'bg-orange-950/60 border-orange-500/60 shadow-lg shadow-orange-600/20' : 'bg-stone-950/60 border-stone-700/40'}`} style={{ width: isMobile ? '28px' : '36px', height: isMobile ? '28px' : '36px' }}>
+                {/* Icon */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  {reward.key === 'uav' && <svg width={isMobile ? 14 : 18} height={isMobile ? 14 : 18} viewBox="0 0 24 24" fill="none" stroke={earned ? '#f97316' : '#525252'} strokeWidth="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>}
+                  {reward.key === 'airstrike' && <svg width={isMobile ? 14 : 18} height={isMobile ? 14 : 18} viewBox="0 0 24 24" fill="none" stroke={earned ? '#f97316' : '#525252'} strokeWidth="2"><path d="M22 2L2 22M22 2l-7 7M2 22l7-7"/><circle cx="14" cy="10" r="2"/></svg>}
+                  {reward.key === 'supplydrop' && <svg width={isMobile ? 14 : 18} height={isMobile ? 14 : 18} viewBox="0 0 24 24" fill="none" stroke={earned ? '#f97316' : '#525252'} strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>}
+                  {reward.key === 'gunship' && <svg width={isMobile ? 14 : 18} height={isMobile ? 14 : 18} viewBox="0 0 24 24" fill="none" stroke={earned ? '#f97316' : '#525252'} strokeWidth="2"><path d="M12 2L2 12l10 10 10-10L12 2zM12 6l6 6-6 6-6-6 6-6z"/></svg>}
+                </div>
+                {/* Progress ring */}
+                {!earned && (
+                  <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="#f97316" strokeWidth="1.5" strokeDasharray={`${progress * 100} 100`} pathLength="100" opacity="0.5" />
+                  </svg>
+                )}
+                {/* Required streak label */}
+                <div className={`absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-[6px] font-black tracking-wider ${earned ? 'text-orange-400' : 'text-stone-600'}`}>{reward.requiredStreak}</div>
+                {/* Earned pulse */}
+                {earned && <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* End op button — subtle pill (desktop: right-center, mobile: top-left small) */}
       <button
         onClick={() => {
@@ -1880,19 +2044,39 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         End Op
       </button>
 
-      {/* Compass bar — sleek strip below wave counter */}
+      {/* Compass bar — MW2019 style with degree ticks and objective markers */}
       {isLocked && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
           <div className={`relative bg-stone-950/70 backdrop-blur-sm rounded-lg border border-stone-700/50 overflow-hidden shadow-lg shadow-black/40 ${isMobile ? 'w-48 h-5' : 'w-72 h-6'}`}>
+            {/* Center marker */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-full bg-orange-500/70" style={{ boxShadow: '0 0 4px rgba(249,115,22,0.5)' }} />
+            {/* Degree ticks */}
+            <div className="absolute top-0 left-0 w-full h-full flex items-center">
+              {[0, 45, 90, 135, 180, 225, 270, 315].map(deg => (
+                <div key={deg} className="absolute flex flex-col items-center" style={{ left: `${(deg / 360) * 100}%`, transform: 'translateX(-50%)' }}>
+                  <div className="w-px h-1.5 bg-stone-600/60" />
+                </div>
+              ))}
+            </div>
+            {/* Cardinal directions */}
             <div className="absolute top-0 left-0 flex items-center justify-between w-full h-full px-3 text-[8px] text-stone-500 font-black tracking-widest">
               <span>N</span><span>W</span><span>S</span><span>E</span>
             </div>
+            {/* Enemy marker on compass */}
             {stats.compassEnemy !== null && (
               <div
                 className="absolute top-0.5 w-2 h-4 bg-red-500/80 rounded-sm"
                 style={{ left: `${50 + Math.sin(stats.compassEnemy) * 45}%`, transform: 'translateX(-50%)', boxShadow: '0 0 4px rgba(239,68,68,0.6)' }}
               />
+            )}
+            {/* Objective marker on compass */}
+            {stats.radarObjective && (
+              <div
+                className="absolute top-0.5 w-2.5 h-4 flex items-center justify-center"
+                style={{ left: `${50 + Math.atan2(stats.radarObjective.x, -stats.radarObjective.z) / Math.PI * 50}%`, transform: 'translateX(-50%)' }}
+              >
+                <div className="w-2 h-2 border border-orange-400 rotate-45" style={{ boxShadow: '0 0 4px rgba(249,115,22,0.6)' }} />
+              </div>
             )}
           </div>
         </div>
@@ -2050,6 +2234,16 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 </svg>
               </div>
             )}
+          </div>
+
+          {/* Auto-sprint button — above joystick area (COD mobile style) */}
+          <div className="absolute bottom-44 left-20 z-30 touch-none">
+            <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,211,238,0.4)" borderColor="rgba(34,211,238,0.7)" icon={icons.sprint} onClick={() => { gameRef.current?.setTouchSprint(true); setTimeout(() => gameRef.current?.setTouchSprint(false), 3000); if (navigator.vibrate) navigator.vibrate(15); }} />
+          </div>
+
+          {/* Emote/spray wheel — top-left corner (COD mobile style) */}
+          <div className="absolute top-16 left-3 z-30 touch-none">
+            <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.emote} onClick={() => { if (navigator.vibrate) navigator.vibrate(15); }} />
           </div>
 
           {/* Lean buttons — small circular icons above joystick area */}
@@ -2459,6 +2653,51 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               </div>
             </div>
 
+            {/* Map flyover preview — BO Cold War style tactical overview */}
+            {(() => {
+              const map = BATTLEFIELDS[selectedMap];
+              const skyHex = '#' + map.skyColor.toString(16).padStart(6, '0');
+              const floorHex = '#' + map.floorColor.toString(16).padStart(6, '0');
+              return (
+                <div className="mb-6 mx-auto max-w-sm bg-stone-950/60 rounded-xl border border-stone-700/40 overflow-hidden" style={{ animation: 'aarSlideIn 0.5s ease-out 0.2s both' }}>
+                  {/* Map preview — stylized top-down view */}
+                  <div className="relative h-32 overflow-hidden" style={{ background: `linear-gradient(135deg, ${skyHex}40, ${floorHex}60)` }}>
+                    {/* Grid overlay */}
+                    <div className="absolute inset-0 opacity-20" style={{
+                      backgroundImage: 'linear-gradient(rgba(249,115,22,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(249,115,22,0.4) 1px, transparent 1px)',
+                      backgroundSize: '20px 20px',
+                    }} />
+                    {/* Spawn points */}
+                    {map.spawnPoints.map((sp, i) => (
+                      <div key={i} className="absolute w-1.5 h-1.5 rounded-full bg-red-500/60" style={{
+                        left: `${50 + (sp.x / map.size) * 45}%`, top: `${50 + (sp.z / map.size) * 45}%`, transform: 'translate(-50%, -50%)',
+                        boxShadow: '0 0 4px rgba(239,68,68,0.6)',
+                      }} />
+                    ))}
+                    {/* Player spawn marker */}
+                    <div className="absolute w-2 h-2 rounded-full bg-orange-500" style={{
+                      left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+                      boxShadow: '0 0 8px rgba(249,115,22,0.8)',
+                    }} />
+                    {/* Scanline sweep effect */}
+                    <div className="absolute inset-0" style={{
+                      background: 'linear-gradient(180deg, transparent 0%, rgba(249,115,22,0.08) 50%, transparent 100%)',
+                      animation: 'loadingPulse 2s ease-in-out infinite',
+                    }} />
+                    {/* Map name overlay */}
+                    <div className="absolute bottom-1 left-2 text-[9px] font-black text-white/80 tracking-widest uppercase">{map.icon} {map.name}</div>
+                    {/* Weather indicator */}
+                    <div className="absolute top-1 right-2 text-[8px] font-black text-stone-400 tracking-widest uppercase">{map.weather}</div>
+                  </div>
+                  {/* Map details strip */}
+                  <div className="px-3 py-2 flex items-center justify-between text-[8px] font-black tracking-widest uppercase">
+                    <span className="text-stone-500">Recommended:</span>
+                    <span className="text-orange-400">{map.recommendedWeapons.map(w => w.toUpperCase()).join(' · ')}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Loadout summary strip */}
             <div className="flex items-center justify-center gap-3 mt-8 text-[8px] text-stone-600 font-black tracking-widest uppercase">
               <span className="text-orange-400">{WEAPONS[loadout.primaryWeapon]?.name || 'SMG'}</span>
@@ -2573,6 +2812,21 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   onChange={(e) => setSettings({ ...settings, hudScale: parseFloat(e.target.value) })}
                   className="w-full accent-orange-500"
                 />
+              </div>
+              {/* HUD Preset — BO6 style layout selector */}
+              <div>
+                <div className="text-[10px] text-stone-400 font-black tracking-widest uppercase mb-2">HUD Preset</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['standard', 'classic', 'inverted', 'magnified', 'essentials'] as const).map(preset => (
+                    <button
+                      key={preset}
+                      onClick={() => setSettings({ ...settings, hudPreset: preset })}
+                      className={`px-2 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${settings.hudPreset === preset ? 'bg-orange-600/30 border border-orange-500/50 text-orange-400' : 'bg-stone-950 border border-stone-800 text-stone-500 hover:bg-stone-900'}`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
               </div>
               {/* Mobile-only controls */}
               {isMobile && (
