@@ -136,7 +136,11 @@ function allPlayersSort(scores: Record<string, any>): { id: string; name: string
 export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, missionName, missionObjective, missionType }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<FPSGame | null>(null);
-  const [stats, setStats] = useState<FPSGameStats>({ kills: 0, shotsFired: 0, shotsHit: 0, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, ammo: 30, magSize: 30, weaponName: 'MP5 TACTICAL', weaponKey: 'smg', grenades: 3, wave: 1, enemiesAlive: 0, killstreak: 0, score: 0, headshots: 0, damageDealt: 0, damageTaken: 0, compassEnemy: null, crosshairSpread: 0, isLeaning: null, suppressed: false, radarBlips: [], radarObjective: null, uavActive: false, scoreMultiplier: 1, comboTimer: 0, isBossWave: false, bossHp: 0, bossMaxHp: 0, waveDamageTaken: 0, waveHeadshots: 0, waveStartTime: 0, isEliteWave: false, waveModifier: null, spectatorTarget: null, lowAmmo: false, dominationZones: [], safeZoneTimer: 0, currentMap: '', isADS: false });
+  const loadoutRef = useRef<LoadoutConfig>(DEFAULT_LOADOUT);
+  const progressionRef = useRef<PlayerProgression>(loadProgression());
+  const statsRef = useRef<FPSGameStats>({ kills: 0, shotsFired: 0, shotsHit: 0, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, ammo: 30, magSize: 30, weaponName: 'MP5 TACTICAL', weaponKey: 'smg', grenades: 3, wave: 1, enemiesAlive: 0, killstreak: 0, score: 0, headshots: 0, damageDealt: 0, damageTaken: 0, compassEnemy: null, crosshairSpread: 0, isLeaning: null, suppressed: false, radarBlips: [], radarObjective: null, uavActive: false, scoreMultiplier: 1, comboTimer: 0, isBossWave: false, bossHp: 0, bossMaxHp: 0, waveDamageTaken: 0, waveHeadshots: 0, waveStartTime: 0, isEliteWave: false, waveModifier: null, spectatorTarget: null, lowAmmo: false, dominationZones: [], safeZoneTimer: 0, currentMap: '', isADS: false });
+  const settingsRef = useRef<GameSettings>(DEFAULT_SETTINGS);
+  const [stats, setStats] = useState<FPSGameStats>(statsRef.current);
   const [isLocked, setIsLocked] = useState(false);
   const [hit, setHit] = useState(false);
   const [headshot, setHeadshot] = useState(false);
@@ -173,6 +177,11 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const [isMobile] = useState(() => typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0));
   const [isFullscreen, setIsFullscreen] = useState(false);
   const tiltCalibration = useRef<{ beta: number; gamma: number }>({ beta: 0, gamma: 0 });
+
+  // Sync refs so the game instance always has fresh data without recreating
+  useEffect(() => { loadoutRef.current = loadout; }, [loadout]);
+  useEffect(() => { progressionRef.current = progression; }, [progression]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   const moveJoyRef = useRef<{ id: number | null; startX: number; startY: number; baseX: number; baseY: number }>({ id: null, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const lookJoyRef = useRef<{ id: number | null; lastX: number; lastY: number; startY: number; startTime: number }>({ id: null, lastX: 0, lastY: 0, startY: 0, startTime: 0 });
   const lastMoveTapRef = useRef(0);
@@ -247,10 +256,11 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         } catch {}
       },
       onStatsUpdate: (newStats) => {
-        if (newStats.weaponKey !== stats.weaponKey) {
+        if (newStats.weaponKey !== statsRef.current.weaponKey) {
           setWeaponSwapAnim(true);
           setTimeout(() => setWeaponSwapAnim(false), 300);
         }
+        statsRef.current = newStats;
         setStats(newStats);
         setReloading(prev => prev !== (newStats.ammo === 0) ? newStats.ammo === 0 : prev);
         setSafeZoneTimer(prev => prev !== newStats.safeZoneTimer ? newStats.safeZoneTimer : prev);
@@ -274,12 +284,14 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           document.exitPointerLock?.();
         }
         // Save progression: XP from kills/score, battle spoils from score
-        const xpGained = stats.kills * 50 + stats.score * 2 + stats.wave * 100;
-        const spoilsGained = Math.round(stats.score * 1.5 + stats.kills * 20);
-        const newP = addXp(progression, xpGained);
+        const s = statsRef.current;
+        const p = progressionRef.current;
+        const xpGained = s.kills * 50 + s.score * 2 + s.wave * 100;
+        const spoilsGained = Math.round(s.score * 1.5 + s.kills * 20);
+        const newP = addXp(p, xpGained);
         // Track weapon kills for mastery
         const weaponKills = { ...newP.weaponKills };
-        weaponKills[stats.weaponKey] = (weaponKills[stats.weaponKey] || 0) + stats.kills;
+        weaponKills[s.weaponKey] = (weaponKills[s.weaponKey] || 0) + s.kills;
         // Update daily challenges
         const today = new Date().toDateString();
         let dailyState = newP.dailyChallenges;
@@ -288,15 +300,15 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         }
         dailyState.challenges.forEach(c => {
           if (c.completed) return;
-          if (c.challenge.type === 'headshots') c.progress = Math.min(c.challenge.target, c.progress + stats.headshots);
-          else if (c.challenge.type === 'kills') c.progress = Math.min(c.challenge.target, c.progress + stats.kills);
-          else if (c.challenge.type === 'waves') c.progress = Math.min(c.challenge.target, c.progress + stats.wave);
+          if (c.challenge.type === 'headshots') c.progress = Math.min(c.challenge.target, c.progress + s.headshots);
+          else if (c.challenge.type === 'kills') c.progress = Math.min(c.challenge.target, c.progress + s.kills);
+          else if (c.challenge.type === 'waves') c.progress = Math.min(c.challenge.target, c.progress + s.wave);
           if (c.progress >= c.challenge.target) {
             c.completed = true;
             addFeed(`★ DAILY CHALLENGE COMPLETE +${c.challenge.reward} ★`);
           }
         });
-        const updated = { ...newP, battleSpoils: newP.battleSpoils + spoilsGained, totalKills: newP.totalKills + stats.kills, totalScore: newP.totalScore + stats.score, matchesPlayed: newP.matchesPlayed + 1, bestWave: Math.max(newP.bestWave, stats.wave), weaponKills, dailyChallenges: dailyState };
+        const updated = { ...newP, battleSpoils: newP.battleSpoils + spoilsGained, totalKills: newP.totalKills + s.kills, totalScore: newP.totalScore + s.score, matchesPlayed: newP.matchesPlayed + 1, bestWave: Math.max(newP.bestWave, s.wave), weaponKills, dailyChallenges: dailyState };
         saveProgression(updated);
         setProgression(updated);
       },
@@ -408,7 +420,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         setTimeout(() => setCombatEngaged(false), 2000);
         lockPointer();
       },
-    }, settings, loadout, progression, selectedMap);
+    }, settingsRef.current, loadoutRef.current, progressionRef.current, selectedMap);
 
     const handleLockChange = () => {
       setIsLocked(!!document.pointerLockElement);
@@ -436,7 +448,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       gameRef.current?.setAimAssist(0.5);
     }
 
-    // Poll screen flash state + multiplayer state
+    // Poll screen flash state + multiplayer state (100ms to reduce re-renders)
     const flashInterval = setInterval(() => {
       if (gameRef.current) {
         const flash = gameRef.current.getScreenFlash();
@@ -445,7 +457,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         setSpawnProtect(gameRef.current.getMpSpawnProtectTimer());
         setRemotePlayerList(gameRef.current.getRemotePlayerList());
       }
-    }, 50);
+    }, 100);
 
     // TAB key for scoreboard
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -474,43 +486,17 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
 
-    // Gyro aim — device orientation for fine aim adjustments
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (!gameRef.current) return;
-      // Tilt-to-look: full look control via device tilt
-      if (settings.tiltLook) {
-        const gamma = e.gamma || 0; // left-right tilt (-90..90)
-        const beta = e.beta || 0;  // front-back tilt (-180..180)
-        const dGamma = gamma - tiltCalibration.current.gamma;
-        const dBeta = beta - tiltCalibration.current.beta;
-        const sens = settings.tiltSensitivity * 0.003;
-        gameRef.current.setTouchLook(dGamma * sens * 20, -dBeta * sens * 20);
-      } else if (settings.gyroAim) {
-        // Fine gyro aim adjustments
-        const yaw = (e.gamma || 0) / 90;
-        const pitch = (e.beta || 0) / 180;
-        gameRef.current.setGyroLook(yaw * 0.02, pitch * 0.02);
-      }
-    };
-    if (typeof window !== 'undefined' && (settings.gyroAim || settings.tiltLook)) {
-      window.addEventListener('deviceorientation', handleOrientation);
-    }
-
     // Fullscreen change listener
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
-    // Sync auto-fire setting
-    gameRef.current?.setAutoFire(autoFire);
-
     return () => {
       clearInterval(flashInterval);
       document.removeEventListener('pointerlockchange', handleLockChange);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('deviceorientation', handleOrientation);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       window.removeEventListener('mobile-lock', handleMobileLock);
       window.removeEventListener('mobile-unlock', handleMobileUnlock);
@@ -519,7 +505,41 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       gameRef.current?.destroy();
       gameRef.current = null;
     };
-  }, [onKill, loadout, progression.unlockedWeapons, settings.gyroAim, settings.tiltLook, autoFire, selectedMap]);
+  }, [onKill, selectedMap]);
+
+  // Sync settings to game instance without recreating
+  useEffect(() => {
+    gameRef.current?.updateSettings(settingsRef.current);
+  }, [settings]);
+
+  // Sync autoFire to game instance
+  useEffect(() => {
+    gameRef.current?.setAutoFire(autoFire);
+  }, [autoFire]);
+
+  // Sync gyro/tilt listeners
+  useEffect(() => {
+    if (!gameRef.current) return;
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (!gameRef.current) return;
+      if (settings.tiltLook) {
+        const gamma = e.gamma || 0;
+        const beta = e.beta || 0;
+        const dGamma = gamma - tiltCalibration.current.gamma;
+        const dBeta = beta - tiltCalibration.current.beta;
+        const sens = settings.tiltSensitivity * 0.003;
+        gameRef.current.setTouchLook(dGamma * sens * 20, -dBeta * sens * 20);
+      } else if (settings.gyroAim) {
+        const yaw = (e.gamma || 0) / 90;
+        const pitch = (e.beta || 0) / 180;
+        gameRef.current.setGyroLook(yaw * 0.02, pitch * 0.02);
+      }
+    };
+    if (settings.gyroAim || settings.tiltLook) {
+      window.addEventListener('deviceorientation', handleOrientation);
+      return () => window.removeEventListener('deviceorientation', handleOrientation);
+    }
+  }, [settings.gyroAim, settings.tiltLook]);
 
   // Screen wake lock — prevent screen from sleeping during gameplay
   useEffect(() => {
@@ -555,9 +575,9 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
     const tipInterval = setInterval(() => {
       tipIdx = (tipIdx + 1) % LOADING_TIPS.length;
       setLoadingTip(LOADING_TIPS[tipIdx]);
-    }, 2500);
+    }, 1500);
     const progressInterval = setInterval(() => {
-      progress += Math.random() * 15 + 5;
+      progress += Math.random() * 25 + 15;
       if (progress >= 100) {
         progress = 100;
         clearInterval(progressInterval);
@@ -570,10 +590,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           } else {
             containerRef.current?.requestPointerLock?.();
           }
-        }, 500);
+        }, 300);
       }
       setLoadingProgress(Math.min(100, progress));
-    }, 200);
+    }, 150);
     return () => { clearInterval(tipInterval); clearInterval(progressInterval); };
   }, [showLoading]);
 
@@ -819,6 +839,22 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             </button>
           </div>
 
+          {/* ─── TOP-CENTER: Quick Play bar ─── */}
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2" style={{ animation: 'lobbySlideIn 0.5s ease-out' }}>
+            <button
+              onClick={() => { setShowModeSelect(false); if (missionName) { setShowBriefing(true); } else { enterBattlefield(); } }}
+              className="px-4 sm:px-6 py-1.5 sm:py-2 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-widest rounded-lg border border-orange-400/40 transition-all hover:scale-105 shadow-lg shadow-orange-600/30"
+            >
+              ⚡ Quick Play
+            </button>
+            <button
+              onClick={() => { setShowModeSelect(false); setShowMapSelect(true); }}
+              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-950/80 hover:bg-stone-800 text-stone-400 text-[8px] sm:text-[9px] font-black uppercase tracking-widest rounded-lg border border-stone-700/50 transition-all"
+            >
+              🗺 <span className="hidden sm:inline">Map: {BATTLEFIELDS[selectedMap].name}</span><span className="sm:hidden">Map</span>
+            </button>
+          </div>
+
           {/* ─── CENTER: Mode cards ─── */}
           <div className="flex-1 flex items-center justify-center px-4 overflow-y-auto py-8">
             <div className="relative z-10 text-center max-w-2xl w-full">
@@ -936,7 +972,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         <LoadoutScreen
           progression={progression}
           loadout={loadout}
-          onDeploy={(newLoadout) => { setLoadout(newLoadout); setShowLoadout(false); if (mpClientRef.current) { setMpLobby(true); } else { setShowMapSelect(true); } }}
+          onDeploy={(newLoadout) => { setLoadout(newLoadout); loadoutRef.current = newLoadout; setShowLoadout(false); if (mpClientRef.current) { setMpLobby(true); } else if (missionName) { setShowBriefing(true); } else { enterBattlefield(); } }}
           onProgressionChange={setProgression}
           onExit={() => { setShowLoadout(false); setShowModeSelect(true); }}
         />
@@ -2276,9 +2312,15 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               if (!t) return;
               const swipeDist = t.clientY - lookJoyRef.current.startY;
               const swipeTime = Date.now() - lookJoyRef.current.startTime;
+              // Swipe down to reload (COD Mobile gesture)
               if (swipeDist > 120 && swipeTime < 400) {
                 gameRef.current?.touchReload();
                 if (navigator.vibrate) navigator.vibrate(30);
+              }
+              // Swipe up to jump (COD Mobile gesture)
+              if (swipeDist < -100 && swipeTime < 300) {
+                gameRef.current?.touchJump();
+                if (navigator.vibrate) navigator.vibrate(20);
               }
               lookJoyRef.current.id = null;
               gameRef.current?.setTouchLook(0, 0);
@@ -2393,10 +2435,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
           <div className="flex gap-3 mt-6">
             <button
-              onClick={() => { setShowMapSelect(false); setShowLoadout(true); }}
+              onClick={() => { setShowMapSelect(false); setShowModeSelect(true); }}
               className="px-6 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-400 text-xs font-black uppercase tracking-widest rounded-lg border border-stone-700 transition-all"
             >
-              ← Back to Loadout
+              ← Back
             </button>
             <button
               onClick={() => { if (missionName) { setShowMapSelect(false); setShowBriefing(true); } else { enterBattlefield(); } }}

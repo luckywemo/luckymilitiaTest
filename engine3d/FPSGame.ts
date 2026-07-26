@@ -121,6 +121,7 @@ export class FPSGame {
   private isADS = false;
   private isCrouching = false;
   private isSprinting = false;
+  private autoSprint = false;
   private slideTimer = 0;
   private slideVel = new THREE.Vector3();
   private damageCooldown = 0;
@@ -2387,12 +2388,25 @@ export class FPSGame {
       this.mouseDeltaY += e.movementY * sens;
     });
 
+    let lastWTap = 0;
     document.addEventListener('keydown', (e) => {
       // Prevent browser default for all game keys to avoid interference
       const gameKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'KeyC', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyG', 'KeyV', 'Digit1', 'Digit2', 'Digit3', 'Tab'];
       if (gameKeys.includes(e.code)) e.preventDefault();
       if (this.dead) return;
       this.keys[e.code] = true;
+      // COD-style: double-tap W to toggle auto-sprint
+      if (e.code === 'KeyW') {
+        const now = performance.now();
+        if (now - lastWTap < 300) {
+          this.autoSprint = true;
+        }
+        lastWTap = now;
+      }
+      // Any other movement key cancels auto-sprint
+      if (e.code === 'KeyS' || e.code === 'KeyA' || e.code === 'KeyD') {
+        this.autoSprint = false;
+      }
       if (e.code === 'KeyF') {
         const nearSwitch = this.lightSwitches.some(s => s.mesh.position.distanceTo(this.camera.position) < 2.5);
         if (nearSwitch) this.toggleLightSwitch(this.camera.position);
@@ -2411,6 +2425,7 @@ export class FPSGame {
 
     document.addEventListener('keyup', (e) => {
       this.keys[e.code] = false;
+      if (e.code === 'KeyW') this.autoSprint = false;
       if (e.code === 'KeyQ' && this.leanDir === 'left') this.leanDir = null;
       if (e.code === 'KeyE' && this.leanDir === 'right') this.leanDir = null;
     });
@@ -3293,6 +3308,7 @@ export class FPSGame {
   public setAutoFire(enabled: boolean) { this.autoFireEnabled = enabled; }
   public setAimAssist(strength: number) { this.aimAssistStrength = Math.max(0, Math.min(1, strength)); }
   public setLocked(locked: boolean) { this.isLocked = locked; }
+  public updateSettings(settings: GameSettings) { this.settings = settings; }
   public getScreenFlash(): { intensity: number; color: number } { return { intensity: this.screenFlashIntensity, color: this.screenFlashColor }; }
   public setLean(dir: 'left' | 'right' | null) { this.leanDir = dir; }
   public touchJump() { this.tryJump(); this.playJumpSound(); }
@@ -3866,7 +3882,7 @@ export class FPSGame {
     }
 
     // Sprint check — requires stamina
-    this.isSprinting = ((this.keys['ShiftLeft'] && this.keys['KeyW']) || (this.touchSprint && this.touchMoveY < -0.3)) && !this.isCrouching && !this.isADS && this.stamina > 0;
+    this.isSprinting = ((this.keys['ShiftLeft'] && this.keys['KeyW']) || this.autoSprint || (this.touchSprint && this.touchMoveY < -0.3)) && !this.isCrouching && !this.isADS && this.stamina > 0;
 
     // Slide
     if (this.slideTimer > 0) {
