@@ -270,7 +270,7 @@ const AppContent: React.FC = () => {
 
   const [currentTrack, setCurrentTrack] = useState(0);
   const PLAYLIST = [
-    '/assets/audio/bg-music.wav',
+    '/assets/audio/bg-music.mp3',
     '/assets/audio/track-2.wav',
     '/assets/audio/track-3.wav',
     '/assets/audio/track-4.wav',
