@@ -21,6 +21,7 @@ export interface PlayerState {
   kills: number;
   deaths: number;
   score: number;
+  seq: number;
 }
 
 export interface ShotEvent {
@@ -69,6 +70,16 @@ interface MPMessage {
 
 type MessageHandler = (msg: any) => void;
 
+interface TimestampedState {
+  state: PlayerState;
+  recvTime: number;
+}
+
+const INTERP_DELAY = 100;
+const MAX_BUFFER = 6;
+const RECONNECT_MAX = 5;
+const RECONNECT_BASE_DELAY = 1000;
+
 export class MultiplayerClient {
   private peer: Peer | null = null;
   private connections: Map<string, any> = new Map();
@@ -83,6 +94,15 @@ export class MultiplayerClient {
   private currentState: PlayerState | null = null;
   private remoteStates: Map<string, PlayerState> = new Map();
   private captureZones: CaptureZone[] = [];
+
+  private stateBuffer: Map<string, TimestampedState[]> = new Map();
+  private pings: Map<string, number> = new Map();
+  private seq = 0;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectionHealth: Map<string, { lastRecv: number; missed: number }> = new Map();
+  private healthInterval: ReturnType<typeof setInterval> | null = null;
+  private destroyed = false;
 
   on(event: string, handler: MessageHandler) {
     if (!this.handlers.has(event)) this.handlers.set(event, []);
@@ -103,6 +123,10 @@ export class MultiplayerClient {
   get myId(): string { return this.peer?.id || ''; }
   get myTeam(): 'alpha' | 'bravo' { return this.team; }
   get myName(): string { return this.playerName; }
+  get ping(): number {
+    const vals = Array.from(this.pings.values());
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  }
 
   broadcastMessage(data: Record<string, unknown>) {
     this.broadcast(data as MPMessage);
@@ -111,7 +135,38 @@ export class MultiplayerClient {
   setLocalState(state: Partial<PlayerState>) {
     if (this.currentState) {
       Object.assign(this.currentState, state);
+      this.currentState.seq = ++this.seq;
     }
+  }
+
+  getInterpolatedState(id: string, renderTime: number): PlayerState | null {
+    const buffer = this.stateBuffer.get(id);
+    if (!buffer || buffer.length < 2) {
+      return this.remoteStates.get(id) || null;
+    }
+    const targetTime = renderTime - INTERP_DELAY;
+    let s0: TimestampedState | null = null;
+    let s1: TimestampedState | null = null;
+    for (let i = 0; i < buffer.length - 1; i++) {
+      if (buffer[i].recvTime <= targetTime && buffer[i + 1].recvTime >= targetTime) {
+        s0 = buffer[i];
+        s1 = buffer[i + 1];
+        break;
+      }
+    }
+    if (!s0 || !s1) {
+      return buffer[buffer.length - 1].state;
+    }
+    const span = s1.recvTime - s0.recvTime;
+    const t = span > 0 ? (targetTime - s0.recvTime) / span : 1;
+    const a = s0.state, b = s1.state;
+    return {
+      ...b,
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+      z: a.z + (b.z - a.z) * t,
+      yaw: a.yaw + (b.yaw - a.yaw) * t,
+    };
   }
 
   createRoom(playerName: string, mode: GameMode, scoreLimit: number): string {
@@ -120,6 +175,7 @@ export class MultiplayerClient {
     this.isHost = true;
     this.roomCode = code;
     this.team = 'alpha';
+    this.destroyed = false;
 
     const peerId = getPeerId('FPS3D', code);
     mpLog(`Creating 3D host peer: ${peerId}`, 'info');
@@ -133,11 +189,24 @@ export class MultiplayerClient {
       this.emit('host_ready', { code, peerId: id });
       this.startSync();
       this.startPing();
+      this.startHealthCheck();
     });
 
     this.peer.on('error', (err: any) => {
       mpLog(`Host error: ${err.type} - ${err.message}`, 'error');
+      if (err.type === 'unavailable-id' && !this.destroyed) {
+        mpLog('Host ID collision, retrying with new code...', 'info');
+        this.peer?.destroy();
+        this.peer = null;
+        setTimeout(() => this.createRoom(playerName, mode, scoreLimit), 500);
+        return;
+      }
       this.emit('error', { error: err });
+    });
+
+    this.peer.on('disconnected', () => {
+      mpLog('Host peer disconnected from signaling, attempting reconnect...', 'info');
+      if (!this.destroyed) this.peer?.reconnect();
     });
 
     this.peer.on('connection', (conn: any) => {
@@ -152,6 +221,8 @@ export class MultiplayerClient {
     this.isHost = false;
     this.roomCode = code;
     this.team = 'bravo';
+    this.destroyed = false;
+    this.reconnectAttempts = 0;
 
     mpLog(`Joining 3D room: ${code}`, 'info');
     this.peer = new Peer(PEER_CONFIG);
@@ -166,11 +237,17 @@ export class MultiplayerClient {
       mpLog(`Client error: ${err.type} - ${err.message}`, 'error');
       this.emit('error', { error: err });
     });
+
+    this.peer.on('disconnected', () => {
+      mpLog('Client peer disconnected from signaling, attempting reconnect...', 'info');
+      if (!this.destroyed) this.peer?.reconnect();
+    });
   }
 
   private connectToHost(hostId: string, attempt = 0) {
-    if (!this.peer || attempt >= 10) {
+    if (!this.peer || attempt >= RECONNECT_MAX) {
       this.emit('error', { error: { message: 'Connection timeout' } });
+      this.emit('reconnect_failed', {});
       return;
     }
 
@@ -178,18 +255,20 @@ export class MultiplayerClient {
     const timeout = setTimeout(() => {
       if (!this.connections.has(hostId)) {
         conn.close();
-        const delay = 1000 * Math.pow(1.5, attempt);
-        setTimeout(() => this.connectToHost(hostId, attempt + 1), delay);
+        this.scheduleReconnect(hostId, attempt);
       }
     }, 8000);
 
     conn.on('open', () => {
       clearTimeout(timeout);
+      this.reconnectAttempts = 0;
       mpLog('Connected to 3D host', 'success');
       this.connections.set(hostId, conn);
+      this.connectionHealth.set(hostId, { lastRecv: Date.now(), missed: 0 });
       conn.send({ type: 'join', name: this.playerName, team: this.team });
       this.startSync();
       this.startPing();
+      this.startHealthCheck();
       this.emit('connected', {});
     });
 
@@ -198,15 +277,46 @@ export class MultiplayerClient {
     conn.on('close', () => {
       clearTimeout(timeout);
       this.connections.delete(hostId);
-      this.remoteStates.clear();
+      this.connectionHealth.delete(hostId);
       this.emit('disconnected', {});
+      if (!this.destroyed && this.roomCode) {
+        this.scheduleReconnect(hostId, 0);
+      }
     });
 
     conn.on('error', () => {
       clearTimeout(timeout);
-      const delay = 1000 * Math.pow(1.5, attempt);
-      setTimeout(() => this.connectToHost(hostId, attempt + 1), delay);
+      this.scheduleReconnect(hostId, attempt);
     });
+  }
+
+  private scheduleReconnect(hostId: string, attempt: number) {
+    if (this.destroyed || attempt >= RECONNECT_MAX) {
+      mpLog(`Reconnect failed after ${RECONNECT_MAX} attempts`, 'error');
+      this.emit('reconnect_failed', {});
+      return;
+    }
+    this.reconnectAttempts = attempt + 1;
+    const delay = RECONNECT_BASE_DELAY * Math.pow(1.5, attempt);
+    mpLog(`Scheduling reconnect attempt ${this.reconnectAttempts}/${RECONNECT_MAX} in ${Math.round(delay)}ms`, 'info');
+    this.emit('reconnecting', { attempt: this.reconnectAttempts, maxAttempts: RECONNECT_MAX });
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      if (!this.destroyed && this.peer) {
+        if (!this.peer.destroyed) {
+          this.connectToHost(hostId, attempt + 1);
+        } else {
+          this.peer = new Peer(PEER_CONFIG);
+          this.peer.on('open', () => {
+            this.currentState = this.makeInitialState(this.peer!.id);
+            this.connectToHost(hostId, attempt + 1);
+          });
+          this.peer.on('error', (err: any) => {
+            this.emit('error', { error: err });
+          });
+        }
+      }
+    }, delay);
   }
 
   private handleIncomingConnection(conn: any) {
@@ -214,6 +324,7 @@ export class MultiplayerClient {
 
     conn.on('open', () => {
       this.connections.set(conn.peer, conn);
+      this.connectionHealth.set(conn.peer, { lastRecv: Date.now(), missed: 0 });
       mpLog(`Connection established: ${conn.peer}`, 'success');
       this.emit('connected', {});
     });
@@ -222,6 +333,8 @@ export class MultiplayerClient {
 
     conn.on('close', () => {
       this.connections.delete(conn.peer);
+      this.connectionHealth.delete(conn.peer);
+      this.stateBuffer.delete(conn.peer);
       this.remoteStates.delete(conn.peer);
       this.emit('player_left', { id: conn.peer });
     });
@@ -229,6 +342,12 @@ export class MultiplayerClient {
 
   private handleMessage(fromId: string, data: MPMessage) {
     if (!data || !data.type) return;
+
+    const health = this.connectionHealth.get(fromId);
+    if (health) {
+      health.lastRecv = Date.now();
+      health.missed = 0;
+    }
 
     switch (data.type) {
       case 'join':
@@ -253,30 +372,66 @@ export class MultiplayerClient {
         this.emit('player_list', { players: list });
         break;
 
-      case 'sync':
+      case 'sync': {
+        const state = data.state as PlayerState;
         const existing = this.remoteStates.get(fromId);
         if (existing) {
-          Object.assign(existing, data.state);
+          Object.assign(existing, state);
         } else {
-          this.remoteStates.set(fromId, data.state as PlayerState);
+          this.remoteStates.set(fromId, state);
         }
-        this.emit('sync', { id: fromId, state: data.state });
+        const now = performance.now();
+        let buf = this.stateBuffer.get(fromId);
+        if (!buf) { buf = []; this.stateBuffer.set(fromId, buf); }
+        buf.push({ state: { ...state }, recvTime: now });
+        if (buf.length > MAX_BUFFER) buf.shift();
+        this.emit('sync', { id: fromId, state });
         break;
+      }
 
       case 'shot':
         this.emit('shot', data as unknown as ShotEvent & MPMessage);
         if (this.isHost) this.broadcast(data, fromId);
         break;
 
-      case 'hit':
-        this.emit('hit', data as unknown as HitEvent & MPMessage);
-        if (this.isHost) this.broadcast(data, fromId);
+      case 'hit': {
+        const hitData = data as unknown as HitEvent & MPMessage;
+        if (this.isHost) {
+          const target = this.remoteStates.get(hitData.toId) || (hitData.toId === this.myId ? this.currentState : null);
+          if (target && !target.isDead && target.hp > 0) {
+            target.hp -= hitData.damage;
+            if (target.hp <= 0) {
+              target.isDead = true;
+              target.deaths++;
+              const killer = this.remoteStates.get(hitData.fromId) || (hitData.fromId === this.myId ? this.currentState : null);
+              if (killer) {
+                killer.kills++;
+                killer.score += hitData.isHeadshot ? 150 : 100;
+              }
+              const killMsg = { type: 'kill', killerId: hitData.fromId, victimId: hitData.toId, weapon: data.weapon || '', isHeadshot: hitData.isHeadshot, timestamp: Date.now() } as MPMessage;
+              this.emit('kill', killMsg as any);
+              this.broadcast(killMsg);
+              this.emit('score_update', { scores: this.getAllScores() });
+              this.broadcast({ type: 'score_update', scores: this.getAllScores() });
+            } else {
+              this.broadcast({ type: 'hit_confirm', toId: hitData.toId, hp: target.hp }, fromId);
+              this.sendTo(hitData.fromId, { type: 'hit_confirm', toId: hitData.toId, hp: target.hp });
+            }
+          }
+        }
+        this.emit('hit', hitData);
         break;
+      }
+
+      case 'hit_confirm': {
+        const target = this.remoteStates.get(data.toId) || (data.toId === this.myId ? this.currentState : null);
+        if (target) target.hp = data.hp;
+        break;
+      }
 
       case 'kill':
         this.emit('kill', data as unknown as KillEvent & MPMessage);
         if (this.isHost) this.broadcast(data, fromId);
-        // Update scores
         if (this.isHost && this.config) {
           const killer = this.remoteStates.get(data.killerId) || this.currentState;
           if (killer) {
@@ -309,10 +464,12 @@ export class MultiplayerClient {
         if (this.isHost) this.sendTo(fromId, { type: 'pong', t: data.t });
         break;
 
-      case 'pong':
+      case 'pong': {
         const ping = Date.now() - data.t;
+        this.pings.set(fromId, ping);
         this.emit('ping', { id: fromId, ping });
         break;
+      }
     }
   }
 
@@ -327,6 +484,7 @@ export class MultiplayerClient {
       weapon: 'smg',
       isFiring: false, isADS: false, isCrouching: false, isDead: false,
       kills: 0, deaths: 0, score: 0,
+      seq: 0,
     };
   }
 
@@ -404,6 +562,29 @@ export class MultiplayerClient {
     }, 2000);
   }
 
+  private startHealthCheck() {
+    if (this.healthInterval) clearInterval(this.healthInterval);
+    this.healthInterval = setInterval(() => {
+      const now = Date.now();
+      this.connectionHealth.forEach((health, id) => {
+        const elapsed = now - health.lastRecv;
+        if (elapsed > 6000) {
+          health.missed++;
+          mpLog(`Connection ${id} missed heartbeat (${health.missed})`, 'error');
+          if (health.missed >= 3) {
+            const conn = this.connections.get(id);
+            if (conn) { try { conn.close(); } catch {} }
+            this.connections.delete(id);
+            this.connectionHealth.delete(id);
+            this.stateBuffer.delete(id);
+            this.remoteStates.delete(id);
+            this.emit('player_left', { id });
+          }
+        }
+      });
+    }, 2000);
+  }
+
   setTeam(team: 'alpha' | 'bravo') {
     this.team = team;
     if (this.currentState) this.currentState.team = team;
@@ -411,12 +592,18 @@ export class MultiplayerClient {
   }
 
   destroy() {
+    this.destroyed = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.syncInterval) clearInterval(this.syncInterval);
     if (this.pingInterval) clearInterval(this.pingInterval);
+    if (this.healthInterval) clearInterval(this.healthInterval);
     this.connections.forEach(conn => { try { conn.close(); } catch {} });
     this.connections.clear();
+    this.connectionHealth.clear();
+    this.stateBuffer.clear();
     if (this.peer) { try { this.peer.destroy(); } catch {} this.peer = null; }
     this.remoteStates.clear();
+    this.pings.clear();
     this.handlers.clear();
   }
 }

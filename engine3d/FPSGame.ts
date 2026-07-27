@@ -361,6 +361,10 @@ export class FPSGame {
     this.renderer.toneMappingExposure = 1.4;
     this.container.appendChild(this.renderer.domElement);
 
+    // Environment map for realistic material reflections
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new THREE.Scene(), 0.04).texture;
+
     // Lighting — map-specific
     const ambient = new THREE.HemisphereLight(this.mapConfig.ambientColor, 0x2a2a22, this.mapConfig.ambientIntensity);
     this.scene.add(ambient);
@@ -1430,13 +1434,13 @@ export class FPSGame {
     const w = WEAPONS[key];
 
     // Shared materials
-    const blackSteel = new THREE.MeshStandardMaterial({ color: 0x0e0e0e, metalness: 0.9, roughness: 0.2 });
-    const darkSteel = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.85, roughness: 0.25 });
-    const midSteel = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.7, roughness: 0.35 });
-    const polymer = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.3, roughness: 0.6 });
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4220, metalness: 0.1, roughness: 0.7 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.9 });
-    const gloveMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7, metalness: 0.1 });
+    const blackSteel = new THREE.MeshStandardMaterial({ color: 0x0e0e0e, metalness: 0.9, roughness: 0.2, envMapIntensity: 1.0 });
+    const darkSteel = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.85, roughness: 0.25, envMapIntensity: 0.9 });
+    const midSteel = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.7, roughness: 0.35, envMapIntensity: 0.8 });
+    const polymer = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.3, roughness: 0.6, envMapIntensity: 0.4 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4220, metalness: 0.1, roughness: 0.7, envMapIntensity: 0.3 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.9, envMapIntensity: 0.2 });
+    const gloveMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7, metalness: 0.1, envMapIntensity: 0.3 });
 
     // ── HANDS (visible on all weapons) ──
     // Right hand (trigger hand) — wraps around pistol grip
@@ -2475,12 +2479,21 @@ export class FPSGame {
 
     document.addEventListener('mousemove', (e) => {
       if (!this.isLocked) return;
-      const sens = (this.isADS ? 0.0005 : 0.0012) * (this.isADS ? this.settings.scopeSensitivity : this.settings.lookSensitivity);
-      this.yaw -= e.movementX * sens;
-      this.pitch -= e.movementY * sens;
+      const baseSens = this.isADS ? this.settings.scopeSensitivity : this.settings.lookSensitivity;
+      const baseMult = this.isADS ? 0.0005 : 0.0012;
+      // Non-linear sensitivity curve: small movements are more precise, large movements are faster.
+      // curve=1 is linear, curve>1 gives more precision at low deltas, curve<1 gives faster at low deltas.
+      const curve = this.settings.sensitivityCurve || 1;
+      const applyCurve = (delta: number) => {
+        const sign = Math.sign(delta);
+        const absD = Math.abs(delta);
+        return sign * Math.pow(absD, curve) * baseMult * baseSens;
+      };
+      this.yaw -= applyCurve(e.movementX);
+      this.pitch -= applyCurve(e.movementY);
       this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
-      this.mouseDeltaX += e.movementX * sens;
-      this.mouseDeltaY += e.movementY * sens;
+      this.mouseDeltaX += e.movementX * baseMult * baseSens;
+      this.mouseDeltaY += e.movementY * baseMult * baseSens;
     });
 
     let lastWTap = 0;
@@ -2529,12 +2542,15 @@ export class FPSGame {
     document.addEventListener('mousedown', (e) => {
       if (!this.isLocked || this.dead) return;
       if (e.button === 0) { this.fire(); this.mouseHeld = true; }
-      if (e.button === 2) this.isADS = true;
+      if (e.button === 2) {
+        if (this.settings.adsToggle) this.isADS = !this.isADS;
+        else this.isADS = true;
+      }
     });
 
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouseHeld = false;
-      if (e.button === 2) this.isADS = false;
+      if (e.button === 2 && !this.settings.adsToggle) this.isADS = false;
     });
 
     document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -3053,7 +3069,7 @@ export class FPSGame {
     });
     this.supplyDropBoostTimer = 15;
     this.grenades = this.loadout.grenadeCount;
-    this.updateStats();
+    this.updateStats(true);
   }
 
   private spawnGunship() {
@@ -3099,6 +3115,12 @@ export class FPSGame {
 
   private fire() {
     if (this.dead || this.reloading) return;
+    // Sprint-to-fire cancel: firing cancels sprint (COD behavior)
+    if (this.isSprinting) {
+      this.isSprinting = false;
+      this.autoSprint = false;
+      this.touchSprint = false;
+    }
     const w = WEAPONS[this.currentWeapon];
     const now = performance.now();
     const effectiveFireRate = this.perk === 'doubletap' ? w.fireRate * 0.8 : w.fireRate;
@@ -3108,6 +3130,7 @@ export class FPSGame {
     this.lastShot = now;
     this.ammo[this.currentWeapon]--;
     this.stats.shotsFired++;
+    this.fireAnim = 1.0;
     // Recoil pattern — cycle through pattern based on shots fired
     const pattern = w.recoilPattern;
     const recoilIdx = (this.stats.shotsFired - 1) % pattern.length;
@@ -3334,7 +3357,7 @@ export class FPSGame {
     this.ammo[this.currentWeapon] += taken;
     this.reserveAmmo[this.currentWeapon] -= taken;
     this.reloading = false;
-    this.updateStats();
+    this.updateStats(true);
     this.playReloadClickSound();
     this.events.onReloadComplete?.();
   }
@@ -3398,7 +3421,15 @@ export class FPSGame {
   public setTouchMove(x: number, y: number) { this.touchMoveX = x; this.touchMoveY = y; }
   public setTouchLook(x: number, y: number) { this.touchLookX = x; this.touchLookY = y; }
   public setTouchFiring(firing: boolean) { this.touchFiring = firing; if (firing && !this.dead) this.fire(); }
-  public setTouchADS(ads: boolean) { this.touchADS = ads; this.isADS = ads; }
+  public setTouchADS(ads: boolean) {
+    if (this.settings.adsToggle && ads) {
+      this.isADS = !this.isADS;
+      this.touchADS = this.isADS;
+    } else if (!this.settings.adsToggle) {
+      this.touchADS = ads;
+      this.isADS = ads;
+    }
+  }
   public setTouchSprint(sprint: boolean) { this.touchSprint = sprint; }
   public setGyroLook(yaw: number, pitch: number) { this.gyroYaw = yaw; this.gyroPitch = pitch; }
   public setAutoFire(enabled: boolean) { this.autoFireEnabled = enabled; }
@@ -3433,6 +3464,7 @@ export class FPSGame {
 
   private inspecting = false;
   private inspectTime = 0;
+  private fireAnim = 0;
   public inspectWeapon() {
     if (this.dead || this.reloading) return;
     this.inspecting = true;
@@ -3607,7 +3639,7 @@ export class FPSGame {
       this.currentWeapon = key;
       this.reloading = false;
       this.rebuildWeaponModel();
-      this.updateStats();
+      this.updateStats(true);
     }, swapDelay);
   }
 
@@ -3622,7 +3654,7 @@ export class FPSGame {
     const vel = dir.multiplyScalar(12);
     this.scene.add(mesh);
     this.grenadesList.push({ mesh, vel, fuse: 2.5 });
-    this.updateStats();
+    this.updateStats(true);
   }
 
   private updateGrenades(dt: number) {
@@ -3778,12 +3810,24 @@ export class FPSGame {
         this.mpLastHitBy = null;
       }
     }
-    this.updateStats();
+    this.updateStats(true);
   }
 
   // ─── STATS ───
 
-  private updateStats() {
+  private lastStatsBuild = 0;
+  /**
+   * Rebuilds the HUD stats snapshot. This allocates several arrays (radar
+   * blips, domination zones) so it is throttled to ~20Hz — it used to run on
+   * every single shot, which produced enough garbage to cause visible GC
+   * hitches during sustained auto fire.
+   * @param force bypass the throttle for events the HUD must show immediately
+   *              (reload finished, weapon swap, death, pickups).
+   */
+  private updateStats(force = false) {
+    const now = performance.now();
+    if (!force && now - this.lastStatsBuild < 50) return;
+    this.lastStatsBuild = now;
     const w = WEAPONS[this.currentWeapon];
     // Find nearest enemy for compass
     let nearestAngle: number | null = null;
@@ -4135,12 +4179,18 @@ export class FPSGame {
     // Touch look input
     if (Math.abs(this.touchLookX) > 0.01 || Math.abs(this.touchLookY) > 0.01) {
       const sens = this.isADS ? this.settings.scopeSensitivity : this.settings.lookSensitivity;
-      const touchSens = (this.isADS ? 0.0015 : 0.004) * sens;
-      this.yaw -= this.touchLookX * touchSens;
-      this.pitch -= this.touchLookY * touchSens;
+      const baseTouchSens = (this.isADS ? 0.0015 : 0.004) * sens;
+      const curve = this.settings.sensitivityCurve || 1;
+      const applyCurveT = (delta: number) => {
+        const sign = Math.sign(delta);
+        const absD = Math.abs(delta);
+        return sign * Math.pow(absD, curve) * baseTouchSens;
+      };
+      this.yaw -= applyCurveT(this.touchLookX);
+      this.pitch -= applyCurveT(this.touchLookY);
       this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
-      this.mouseDeltaX += this.touchLookX * touchSens;
-      this.mouseDeltaY += this.touchLookY * touchSens;
+      this.mouseDeltaX += this.touchLookX * baseTouchSens;
+      this.mouseDeltaY += this.touchLookY * baseTouchSens;
     }
     // Gyro aim — fine adjustments via device tilt
     if (this.settings.gyroAim && (Math.abs(this.gyroYaw) > 0.001 || Math.abs(this.gyroPitch) > 0.001)) {
@@ -4202,6 +4252,23 @@ export class FPSGame {
     if (this.weaponGroup) {
       const adsX = this.isADS ? 0 : 0.16;
       const adsY = this.isADS ? -0.09 : -0.19;
+      // Sprint animation — lower weapon and tilt to the right (COD-style)
+      let sprintOffsetY = 0, sprintOffsetZ = 0, sprintRotX = 0, sprintRotY = 0, sprintRotZ = 0;
+      if (this.isSprinting && !this.isADS) {
+        const sprintT = Math.min(1, (this.stamina / this.maxStamina));
+        sprintOffsetY = -0.12;
+        sprintOffsetZ = 0.08;
+        sprintRotX = 0.35;
+        sprintRotY = -0.25;
+        sprintRotZ = 0.15;
+      }
+      // Firing animation — quick kickback for slide/bolt
+      let fireKickZ = 0, fireKickRot = 0;
+      if (this.fireAnim > 0) {
+        fireKickZ = this.fireAnim * 0.04;
+        fireKickRot = this.fireAnim * 0.15;
+        this.fireAnim = Math.max(0, this.fireAnim - dt * 8);
+      }
       // Weapon inspect animation — rotate gun for 2.5s
       let inspectOffsetX = 0, inspectOffsetY = 0, inspectRotY = 0, inspectRotZ = 0;
       if (this.inspecting) {
@@ -4220,13 +4287,13 @@ export class FPSGame {
       }
       this.weaponGroup.position.set(
         adsX + swayX + this.weaponSwayX + inspectOffsetX,
-        adsY - this.recoil * 0.2 + bob + swayY + this.weaponSwayY + reloadDipY + inspectOffsetY,
-        -0.32 - this.recoil * 0.8
+        adsY - this.recoil * 0.2 + bob + swayY + this.weaponSwayY + reloadDipY + inspectOffsetY + sprintOffsetY,
+        -0.32 - this.recoil * 0.8 + sprintOffsetZ + fireKickZ
       );
       this.weaponGroup.rotation.set(
-        this.recoil * 0.5 + reloadRotX + breathRotX,
-        this.isADS ? 0 : 0.06 + this.weaponSwayX * 0.5 + inspectRotY,
-        -0.04 + swayX * 2 + this.weaponSwayY + breathRotZ + inspectRotZ
+        this.recoil * 0.5 + reloadRotX + breathRotX + sprintRotX + fireKickRot,
+        this.isADS ? 0 : 0.06 + this.weaponSwayX * 0.5 + inspectRotY + sprintRotY,
+        -0.04 + swayX * 2 + this.weaponSwayY + breathRotZ + inspectRotZ + sprintRotZ
       );
     }
 
@@ -4241,17 +4308,27 @@ export class FPSGame {
       const now = performance.now();
       const effectiveFireRate = this.perk === 'doubletap' ? w.fireRate * 0.8 : w.fireRate;
       if (now - this.lastShot >= effectiveFireRate) {
-        // Check if crosshair is near an enemy
-        const ray = new THREE.Raycaster();
+        // Check if crosshair is near an enemy.
+        // Recursively raycasting every enemy group (~40 meshes each) was the
+        // single most expensive thing in the frame on mobile. Reject by
+        // distance and view-cone first so we only raycast plausible targets.
         const dir = new THREE.Vector3();
         this.camera.getWorldDirection(dir);
-        ray.set(this.camera.position, dir);
-        ray.far = 100;
+        const origin = this.camera.position;
+        const toEnemy = new THREE.Vector3();
         let hitEnemy = false;
+        let ray: THREE.Raycaster | null = null;
         for (const e of this.enemies) {
           if (e.dead) continue;
-          const hit = ray.intersectObject(e.group, true);
-          if (hit.length > 0) { hitEnemy = true; break; }
+          toEnemy.subVectors(e.group.position, origin);
+          const distSq = toEnemy.lengthSq();
+          if (distSq > 100 * 100) continue;
+          // Cheap cone rejection before touching the raycaster
+          toEnemy.normalize();
+          if (toEnemy.dot(dir) < 0.9) continue;
+          if (!ray) { ray = new THREE.Raycaster(); ray.far = 100; }
+          ray.set(origin, dir);
+          if (ray.intersectObject(e.group, true).length > 0) { hitEnemy = true; break; }
         }
         if (hitEnemy) this.fire();
       }
@@ -4276,6 +4353,10 @@ export class FPSGame {
       this.updateAI(dt);
       this.updateWaves(dt);
     }
+
+    // Keep the HUD snapshot live (radar blips, enemies alive, stamina).
+    // Internally throttled to ~20Hz so this is cheap.
+    this.updateStats();
   }
 
   private checkPickups() {
@@ -4320,7 +4401,7 @@ export class FPSGame {
           p.taken = true;
           this.scene.remove(p.mesh);
         }
-        this.updateStats();
+        this.updateStats(true);
       }
     });
   }
@@ -4851,7 +4932,14 @@ export class FPSGame {
   }
 
   private updateRemotePlayers(dt: number) {
+    const renderTime = performance.now();
     this.remotePlayers.forEach(rp => {
+      if (this.mpClient) {
+        const interp = this.mpClient.getInterpolatedState(rp.id, renderTime);
+        if (interp) {
+          rp.setTargetState(interp.x, interp.y, interp.z, interp.yaw, interp.isDead, interp.hp);
+        }
+      }
       rp.update(dt);
       // Footstep audio
       if (rp.getFootstepTrigger()) {

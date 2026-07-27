@@ -282,6 +282,8 @@ export interface GameSettings {
   tiltLook: boolean;
   tiltSensitivity: number;
   hudPreset: 'standard' | 'classic' | 'inverted' | 'magnified' | 'essentials';
+  adsToggle: boolean;
+  sensitivityCurve: number;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -301,6 +303,8 @@ export const DEFAULT_SETTINGS: GameSettings = {
   tiltLook: false,
   tiltSensitivity: 1.0,
   hudPreset: 'standard',
+  adsToggle: false,
+  sensitivityCurve: 1.5,
 };
 
 export interface DamageNumber {

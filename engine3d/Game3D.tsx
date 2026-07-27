@@ -147,6 +147,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
   const progressionRef = useRef<PlayerProgression>(loadProgression());
   const statsRef = useRef<FPSGameStats>({ kills: 0, shotsFired: 0, shotsHit: 0, hp: 100, maxHp: 100, stamina: 100, maxStamina: 100, ammo: 30, magSize: 30, weaponName: 'MP5 TACTICAL', weaponKey: 'smg', grenades: 3, wave: 1, enemiesAlive: 0, killstreak: 0, score: 0, headshots: 0, damageDealt: 0, damageTaken: 0, compassEnemy: null, crosshairSpread: 0, isLeaning: null, suppressed: false, radarBlips: [], radarObjective: null, uavActive: false, scoreMultiplier: 1, comboTimer: 0, isBossWave: false, bossHp: 0, bossMaxHp: 0, waveDamageTaken: 0, waveHeadshots: 0, waveStartTime: 0, isEliteWave: false, waveModifier: null, spectatorTarget: null, lowAmmo: false, dominationZones: [], safeZoneTimer: 0, currentMap: '', isADS: false });
   const settingsRef = useRef<GameSettings>(DEFAULT_SETTINGS);
+  const statsDirtyRef = useRef(false);
   const [stats, setStats] = useState<FPSGameStats>(statsRef.current);
   const [isLocked, setIsLocked] = useState(false);
   const [hit, setHit] = useState(false);
@@ -291,10 +292,12 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           setWeaponSwapAnim(true);
           setTimeout(() => setWeaponSwapAnim(false), 300);
         }
+        // Keep the ref hot for game logic, but DON'T call setState here.
+        // This fires on every shot/hit/pickup; pushing a ~40-field object into
+        // React state at that rate re-renders the whole HUD and is the main
+        // source of the mid-match stutter. The 100ms poller flushes it instead.
         statsRef.current = newStats;
-        setStats(newStats);
-        setReloading(prev => prev !== (newStats.ammo === 0) ? newStats.ammo === 0 : prev);
-        setSafeZoneTimer(prev => prev !== newStats.safeZoneTimer ? newStats.safeZoneTimer : prev);
+        statsDirtyRef.current = true;
       },
       onDamage: (direction: number) => {
         setDamageDir(direction);
@@ -497,15 +500,55 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
       gameRef.current?.setAimAssist(0.5);
     }
 
-    // Poll screen flash state + multiplayer state (100ms to reduce re-renders)
+    // Poll screen flash + multiplayer state. CRITICAL: only setState when the
+    // value actually changed, otherwise every tick forces a full re-render of
+    // the entire HUD tree and causes the mid-game stutter/hang.
     const flashInterval = setInterval(() => {
-      if (gameRef.current) {
-        const flash = gameRef.current.getScreenFlash();
-        setScreenFlash(flash.intensity > 0 ? flash : null);
-        setPreMatchCountdown(gameRef.current.getMpPreMatchCountdown());
-        setSpawnProtect(gameRef.current.getMpSpawnProtectTimer());
-        setRemotePlayerList(gameRef.current.getRemotePlayerList());
+      const g = gameRef.current;
+      if (!g) return;
+
+      // Flush accumulated stats at a controlled 10Hz instead of on every shot.
+      if (statsDirtyRef.current) {
+        statsDirtyRef.current = false;
+        const s = statsRef.current;
+        setStats(s);
+        setReloading(prev => (prev !== (s.ammo === 0) ? s.ammo === 0 : prev));
+        setSafeZoneTimer(prev => (prev !== s.safeZoneTimer ? s.safeZoneTimer : prev));
       }
+
+      const flash = g.getScreenFlash();
+      const nextFlash = flash.intensity > 0 ? flash : null;
+      if (nextFlash === null) {
+        setScreenFlash(prev => (prev === null ? prev : null));
+      } else {
+        setScreenFlash(prev =>
+          prev && prev.intensity === nextFlash.intensity && prev.color === nextFlash.color
+            ? prev
+            : nextFlash
+        );
+      }
+
+      const countdown = g.getMpPreMatchCountdown();
+      setPreMatchCountdown(prev => (prev === countdown ? prev : countdown));
+
+      const protect = Math.ceil(g.getMpSpawnProtectTimer());
+      setSpawnProtect(prev => (Math.ceil(prev) === protect ? prev : protect));
+
+      // Remote player list allocates a new array every tick — bail out early in
+      // single player and shallow-compare otherwise.
+      const list = g.getRemotePlayerList();
+      setRemotePlayerList(prev => {
+        if (prev.length === 0 && list.length === 0) return prev;
+        if (prev.length !== list.length) return list;
+        for (let i = 0; i < list.length; i++) {
+          const a = prev[i], b = list[i];
+          if (a.id !== b.id || a.kills !== b.kills || a.deaths !== b.deaths ||
+              a.score !== b.score || a.ping !== b.ping || a.dead !== b.dead) {
+            return list;
+          }
+        }
+        return prev;
+      });
     }, 100);
 
     // TAB key for scoreboard
@@ -733,6 +776,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 setMpStatus('BROADCASTING');
                 client.on('host_ready', () => setMpStatus('WAITING FOR PLAYERS'));
                 client.on('player_joined', () => setMpStatus('PLAYER JOINED'));
+                client.on('reconnecting', (msg: any) => setMpStatus(`RECONNECTING ${msg.attempt}/${msg.maxAttempts}...`));
+                client.on('reconnect_failed', () => setMpStatus('RECONNECT FAILED'));
                 client.on('error', (msg: any) => setMpStatus(`ERROR: ${msg.error?.message || 'unknown'}`));
               }}
               className="w-full py-3 mb-3 bg-orange-600 hover:bg-orange-500 text-white text-sm font-black uppercase tracking-widest rounded transition-colors"
@@ -774,6 +819,8 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                       setMpMode(msg.config.mode);
                       setMpScoreLimit(msg.config.scoreLimit);
                     });
+                    client.on('reconnecting', (msg: any) => setMpStatus(`RECONNECTING ${msg.attempt}/${msg.maxAttempts}...`));
+                    client.on('reconnect_failed', () => setMpStatus('RECONNECT FAILED'));
                     client.on('error', (msg: any) => setMpStatus(`ERROR: ${msg.error?.message || 'unknown'}`));
                   }}
                   className="px-4 py-2 bg-stone-800 hover:bg-cyan-600 text-white text-xs font-black uppercase tracking-widest rounded border border-cyan-500/50 transition-colors"
@@ -1355,7 +1402,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Scorestreak progress bar — COD-style */}
       {isLocked && !dead && stats.killstreak >= 0 && (
-        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'bottom-[145px] right-3' : 'bottom-24 right-5'}`}>
+        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'top-44 right-3' : 'bottom-24 right-5'}`}>
           <div className="bg-stone-950/60 backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-stone-700/40 shadow-lg">
             <div className="flex items-center gap-2">
               <span className="text-[7px] text-stone-500 font-black tracking-widest uppercase">Streak</span>
@@ -1393,10 +1440,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Low ammo warning — flashing red border on ammo counter */}
       {isLocked && !dead && stats.lowAmmo && !reloading && (
-        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'bottom-[145px] right-3' : 'bottom-5 right-5'}`}>
+        <div className={`absolute z-20 pointer-events-none ${isMobile ? 'top-52 right-3' : 'bottom-5 right-5'}`}>
           <style>{`@keyframes lowAmmoFlash { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }`}</style>
           <div className="text-[8px] text-red-500 font-black tracking-widest uppercase" style={{ animation: 'lowAmmoFlash 0.8s ease-in-out infinite' }}>
-            ⚠ LOW AMMO — PRESS R
+            ⚠ LOW AMMO{!isMobile ? ' — PRESS R' : ''}
           </div>
         </div>
       )}
@@ -2130,7 +2177,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Mobile compact weapon/ammo — COD style bottom-right, above fire button */}
       {isMobile && isLocked && !dead && (
-        <div className="absolute bottom-[110px] right-3 z-20 pointer-events-none">
+        <div className="absolute bottom-[185px] right-4 z-20 pointer-events-none">
           <div className="bg-stone-950/60 backdrop-blur-md rounded-lg px-2 py-1 border border-stone-700/40 text-right">
             {reloading ? (
               <div className="text-orange-400 text-[10px] font-black tracking-widest animate-pulse">RELOADING</div>
@@ -2147,7 +2194,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
 
       {/* Scorestreak reward icons — COD mobile style, above weapon panel */}
       {isLocked && !dead && (
-        <div className={`absolute z-20 pointer-events-none flex gap-1.5 ${isMobile ? 'bottom-[145px] right-3' : 'bottom-[90px] right-5'}`}>
+        <div className={`absolute z-20 pointer-events-none flex gap-1.5 ${isMobile ? 'top-32 right-3' : 'bottom-[90px] right-5'}`}>
           {Object.values(KILLSTREAK_REWARDS).map((reward) => {
             const earned = stats.killstreak >= reward.requiredStreak;
             const progress = Math.min(1, stats.killstreak / reward.requiredStreak);
@@ -2296,7 +2343,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         <>
           {/* Dynamic left joystick — appears wherever left thumb touches */}
           <div
-            className="absolute bottom-0 left-0 w-1/2 h-2/3 z-10 touch-none"
+            className="absolute bottom-0 left-0 w-[40%] h-[55%] z-10 touch-none"
             style={{ pointerEvents: 'auto' }}
             onTouchStart={(e) => {
               const t = e.changedTouches[0];
@@ -2385,24 +2432,24 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
 
           {/* Auto-sprint button — above joystick area (COD mobile style) */}
-          <div className="absolute bottom-44 left-20 z-30 touch-none">
+          <div className="absolute top-28 left-[104px] z-30 touch-none">
             <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,211,238,0.4)" borderColor="rgba(34,211,238,0.7)" icon={icons.sprint} onClick={() => { gameRef.current?.setTouchSprint(true); setTimeout(() => gameRef.current?.setTouchSprint(false), 3000); if (navigator.vibrate) navigator.vibrate(15); }} />
           </div>
 
           {/* Emote/spray wheel — top-left corner (COD mobile style) */}
-          <div className="absolute top-16 left-3 z-30 touch-none">
+          <div className="absolute top-28 left-3 z-30 touch-none">
             <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.emote} onClick={() => { if (navigator.vibrate) navigator.vibrate(15); }} />
           </div>
 
           {/* Lean buttons — small circular icons above joystick area */}
-          <div className="absolute bottom-32 left-4 z-30 flex gap-1.5 touch-none">
+          <div className="absolute top-28 left-[52px] z-30 flex gap-1.5 touch-none">
             <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanLeft} onDown={() => { gameRef.current?.setLean('left'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
             <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanRight} onDown={() => { gameRef.current?.setLean('right'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
           </div>
 
           {/* Right side — look swipe area */}
           <div
-            className="absolute bottom-0 right-0 w-1/2 h-2/3 z-10 touch-none"
+            className="absolute bottom-0 right-0 w-[60%] h-[55%] z-10 touch-none"
             style={{ pointerEvents: 'auto' }}
             onTouchStart={(e) => {
               const t = e.changedTouches[0];
@@ -2440,31 +2487,31 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           {/* Right-side action buttons — COD Mobile style layout */}
           <div className="absolute bottom-0 right-0 z-30 touch-none">
             {/* Fire button — large, bottom-right corner, doubles as look/aim while firing */}
-            <div className="absolute bottom-3 right-3">
+            <div className="absolute bottom-4 right-4">
               <HudButton size={64} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.6)" borderColor="rgba(248,113,113,0.8)" icon={icons.fire} onDown={() => { gameRef.current?.setTouchFiring(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchFiring(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
             </div>
             {/* ADS — directly above fire, also allows aim adjustment while scoped */}
-            <div className="absolute bottom-[76px] right-[18px]">
+            <div className="absolute bottom-[76px] right-4">
               <HudButton size={50} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(59,130,246,0.5)" borderColor="rgba(96,165,250,0.7)" icon={icons.scope} onDown={() => { gameRef.current?.setTouchADS(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchADS(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
             </div>
             {/* Crouch — left of fire */}
-            <div className="absolute bottom-3 right-[76px]">
+            <div className="absolute bottom-4 right-[76px]">
               <HudButton size={46} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.crouch} onClick={() => { gameRef.current?.touchCrouch(); if (navigator.vibrate) navigator.vibrate(10); }} />
             </div>
             {/* Jump — above crouch */}
-            <div className="absolute bottom-[58px] right-[76px]">
+            <div className="absolute bottom-[76px] right-[76px]">
               <HudButton size={46} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.jump} onClick={() => { gameRef.current?.touchJump(); if (navigator.vibrate) navigator.vibrate(15); }} />
             </div>
             {/* Reload — left of crouch */}
-            <div className="absolute bottom-3 right-[132px]">
+            <div className="absolute bottom-4 right-[132px]">
               <HudButton size={44} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.reload} onClick={() => { gameRef.current?.touchReload(); if (navigator.vibrate) navigator.vibrate(20); }} />
             </div>
             {/* Grenade — above reload */}
-            <div className="absolute bottom-[58px] right-[132px]">
+            <div className="absolute bottom-[76px] right-[132px]">
               <HudButton size={42} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,197,94,0.4)" borderColor="rgba(74,222,128,0.6)" icon={icons.grenade} onClick={() => { gameRef.current?.touchGrenade(); if (navigator.vibrate) navigator.vibrate(20); }} />
             </div>
             {/* Melee — above ADS */}
-            <div className="absolute bottom-[138px] right-[22px]">
+            <div className="absolute bottom-[132px] right-[76px]">
               <HudButton size={42} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.4)" borderColor="rgba(248,113,113,0.6)" icon={icons.knife} onClick={() => { gameRef.current?.touchMelee(); if (navigator.vibrate) navigator.vibrate(40); }} />
             </div>
             {/* Weapon switch — top-right corner */}
@@ -2478,7 +2525,7 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
           </div>
 
           {/* Quick-scope shortcut — desktop: top-right, mobile: left side above lean buttons */}
-          <div className={`absolute z-30 touch-none ${isMobile ? 'bottom-44 left-4' : 'top-24 right-4'}`}>
+          <div className={`absolute z-30 touch-none ${isMobile ? 'bottom-[132px] right-4' : 'top-24 right-4'}`}>
             <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.quickScope} onClick={() => { gameRef.current?.touchQuickScope(); if (navigator.vibrate) navigator.vibrate(25); }} />
           </div>
         </>
@@ -2933,6 +2980,27 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                   onChange={(e) => setSettings({ ...settings, scopeSensitivity: parseFloat(e.target.value) })}
                   className="w-full accent-orange-500"
                 />
+              </div>
+              <button
+                onClick={() => setSettings({ ...settings, adsToggle: !settings.adsToggle })}
+                className={`w-full p-2.5 rounded-lg flex justify-between items-center transition-all ${settings.adsToggle ? 'bg-orange-600/20 border border-orange-500/40' : 'bg-stone-950 border border-stone-800'}`}
+              >
+                <span className={`text-[10px] font-black uppercase tracking-widest ${settings.adsToggle ? 'text-orange-400' : 'text-stone-500'}`}>ADS Toggle (vs Hold)</span>
+                <div className={`w-8 h-4 rounded-full p-0.5 transition-all ${settings.adsToggle ? 'bg-orange-600' : 'bg-stone-900'}`}>
+                  <div className={`w-3 h-3 bg-white rounded-full transition-all ${settings.adsToggle ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
+              </button>
+              <div>
+                <div className="flex justify-between text-[10px] text-stone-400 font-black tracking-widest uppercase mb-1.5">
+                  <span>Sensitivity Curve</span>
+                  <span className="text-orange-400">{settings.sensitivityCurve.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min="0.5" max="2.5" step="0.1" value={settings.sensitivityCurve}
+                  onChange={(e) => setSettings({ ...settings, sensitivityCurve: parseFloat(e.target.value) })}
+                  className="w-full accent-orange-500"
+                />
+                <div className="text-[8px] text-stone-600 mt-1">Lower = faster turns, Higher = more precision</div>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] text-stone-400 font-black tracking-widest uppercase mb-1.5">
