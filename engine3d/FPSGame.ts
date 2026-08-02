@@ -3,6 +3,7 @@ import type { FPSGameEvents, FPSGameStats, WeaponKey, EnemyType, GameSettings, L
 import { WEAPONS, DEFAULT_SETTINGS, DEFAULT_LOADOUT, CHARACTERS, ARMORS, GRENADES, UPGRADES, PERKS, KILLSTREAK_REWARDS, DEFAULT_OBJECTIVE, getWaveModifier, ACHIEVEMENTS, QUICK_CHAT_OPTIONS, BATTLEFIELDS } from './types';
 import { MultiplayerClient, type GameMode, type PlayerState } from './MultiplayerClient';
 import { RemotePlayer } from './RemotePlayer';
+import { BattlefieldBuilder } from './BattlefieldBuilder';
 
 interface Enemy {
   group: THREE.Group;
@@ -267,6 +268,7 @@ export class FPSGame {
   private muzzleLightTimer = 0;
   private mapType: MapType = 'urban_desert';
   private mapConfig: BattlefieldConfig;
+  private battlefieldBuilder: BattlefieldBuilder | null = null;
   private safeZoneTimer = 0;
   private safeZoneActive = false;
   private velX = 0;
@@ -356,9 +358,9 @@ export class FPSGame {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.4;
+    this.renderer.toneMappingExposure = 1.2;
     this.container.appendChild(this.renderer.domElement);
 
     // Environment map for realistic material reflections
@@ -372,15 +374,16 @@ export class FPSGame {
     const dirLight = new THREE.DirectionalLight(this.mapConfig.dirLightColor, this.mapConfig.dirLightIntensity);
     dirLight.position.set(...this.mapConfig.dirLightPos);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.mapSize.width = 4096;
+    dirLight.shadow.mapSize.height = 4096;
     dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 140;
-    dirLight.shadow.camera.left = -60;
-    dirLight.shadow.camera.right = 60;
-    dirLight.shadow.camera.top = 60;
-    dirLight.shadow.camera.bottom = -60;
+    dirLight.shadow.camera.far = 200;
+    dirLight.shadow.camera.left = -80;
+    dirLight.shadow.camera.right = 80;
+    dirLight.shadow.camera.top = 80;
+    dirLight.shadow.camera.bottom = -80;
     dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.normalBias = 0.02;
     this.scene.add(dirLight);
 
     const fillLight = new THREE.DirectionalLight(this.mapConfig.fillColor, this.mapConfig.fillIntensity);
@@ -487,7 +490,14 @@ export class FPSGame {
 
   private buildMapWorld() {
     switch (this.mapType) {
-      case 'urban_desert': this.buildUrbanDesertMap(); break;
+      case 'urban_desert':
+        this.battlefieldBuilder = new BattlefieldBuilder(this.scene);
+        this.battlefieldBuilder.build();
+        // Merge collidables from the builder
+        for (const c of this.battlefieldBuilder.getCollidables()) {
+          this.collidables.push(c);
+        }
+        break;
       case 'jungle': this.buildJungleMap(); break;
       case 'cyberpunk': this.buildCyberpunkMap(); break;
     }
@@ -5213,9 +5223,15 @@ export class FPSGame {
     if (this.started) return;
     this.started = true;
     // Randomize player spawn point
-    const spawns = this.mapConfig.spawnPoints;
-    const spawn = spawns[Math.floor(Math.random() * spawns.length)];
-    this.camera.position.set(spawn.x, 1.7, spawn.z);
+    const builderSpawns = this.battlefieldBuilder?.getSpawnPoints();
+    if (builderSpawns && builderSpawns.length > 0) {
+      const spawn = builderSpawns[Math.floor(Math.random() * builderSpawns.length)];
+      this.camera.position.set(spawn.x, 1.7, spawn.z);
+    } else {
+      const spawns = this.mapConfig.spawnPoints;
+      const spawn = spawns[Math.floor(Math.random() * spawns.length)];
+      this.camera.position.set(spawn.x, 1.7, spawn.z);
+    }
     // Activate 10-second safe zone
     this.safeZoneTimer = 10;
     this.safeZoneActive = true;
@@ -5368,6 +5384,8 @@ export class FPSGame {
     this.mpRemoteBlood.forEach(b => { this.scene.remove(b.mesh); b.mesh.geometry.dispose(); (b.mesh.material as THREE.Material).dispose(); });
     this.mpRemoteBlood = [];
     if (this.mpClient) { this.mpClient.destroy(); this.mpClient = null; }
+    // Cleanup battlefield builder
+    if (this.battlefieldBuilder) { this.battlefieldBuilder.dispose(); this.battlefieldBuilder = null; }
     // Cleanup music
     if (this.musicOsc) { try { this.musicOsc.stop(); } catch {} this.musicOsc = null; }
     if (this.musicOsc2) { try { this.musicOsc2.stop(); } catch {} this.musicOsc2 = null; }
