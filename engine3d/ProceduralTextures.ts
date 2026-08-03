@@ -710,14 +710,17 @@ export function makeSurfaceMaterial(
   tex.normal.repeat.set(repeat, repeat);
   tex.roughness.repeat.set(repeat, repeat);
 
-  const metalness = opts.metalness ?? (type === 'metal' || type === 'metal_rust' ? 0.9 : 0.0);
+  const isMetal = type === 'metal' || type === 'metal_rust';
+  const metalness = opts.metalness ?? (isMetal ? 0.9 : 0.0);
+  const envIntensity = opts.envMapIntensity ?? (isMetal ? 0.8 : 0.35);
 
   return new THREE.MeshStandardMaterial({
     map: tex.albedo,
     normalMap: tex.normal,
     roughnessMap: tex.roughness,
+    roughness: 1.0,
     metalness,
-    envMapIntensity: opts.envMapIntensity ?? 0.5,
+    envMapIntensity: envIntensity,
   });
 }
 

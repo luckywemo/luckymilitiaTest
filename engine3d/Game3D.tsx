@@ -2338,12 +2338,14 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
         </div>
       )}
 
-      {/* Mobile touch controls — icon-based circular HUD */}
+      {/* Mobile touch controls — COD Mobile style dual-sided layout */}
       {isLocked && isMobile && (
         <>
-          {/* Dynamic left joystick — appears wherever left thumb touches */}
+          {/* ── LEFT SIDE: Move joystick + left fire/ADS cluster ── */}
+
+          {/* Dynamic left joystick — appears wherever left thumb touches in lower-left zone */}
           <div
-            className="absolute bottom-0 left-0 w-[40%] h-[55%] z-10 touch-none"
+            className="absolute bottom-0 left-0 w-[38%] h-[50%] z-10 touch-none"
             style={{ pointerEvents: 'auto' }}
             onTouchStart={(e) => {
               const t = e.changedTouches[0];
@@ -2379,7 +2381,6 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               setJoyPos({ x: 0, y: 0, active: false });
             }}
           >
-            {/* Dynamic joystick visual — cyan ring with directional arrows like reference */}
             {joyPos.active && (
               <div className="absolute pointer-events-none" style={{ left: joyPos.x - 60 * settings.joystickSize, top: joyPos.y - 60 * settings.joystickSize }}>
                 <div
@@ -2392,7 +2393,6 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                     boxShadow: `0 0 ${16 * settings.joystickOpacity}px rgba(34,211,238,${0.25 * settings.joystickOpacity})`,
                   }}
                 >
-                  {/* Directional arrows */}
                   <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 120 120" style={{ opacity: settings.joystickOpacity }}>
                     <path d="M60 12 L66 24 L54 24 Z" fill="rgba(34,211,238,0.7)" />
                     <path d="M60 108 L54 96 L66 96 Z" fill="rgba(34,211,238,0.7)" />
@@ -2410,7 +2410,6 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
                 </div>
               </div>
             )}
-            {/* Static joystick hint when inactive */}
             {!joyPos.active && (
               <div
                 className="absolute bottom-10 left-8 rounded-full border-2 backdrop-blur-sm flex items-center justify-center pointer-events-none"
@@ -2431,25 +2430,37 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             )}
           </div>
 
-          {/* Auto-sprint button — above joystick area (COD mobile style) */}
-          <div className="absolute top-28 left-[104px] z-30 touch-none">
-            <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,211,238,0.4)" borderColor="rgba(34,211,238,0.7)" icon={icons.sprint} onClick={() => { gameRef.current?.setTouchSprint(true); setTimeout(() => gameRef.current?.setTouchSprint(false), 3000); if (navigator.vibrate) navigator.vibrate(15); }} />
+          {/* Left-side action buttons — stacked vertically on far left edge */}
+          <div className="absolute bottom-0 left-0 z-30 touch-none">
+            {/* Reload — bottom-left, above joystick hint */}
+            <div className="absolute bottom-[130px] left-3">
+              <HudButton size={48} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,197,94,0.4)" borderColor="rgba(74,222,128,0.6)" icon={icons.reload} onClick={() => { gameRef.current?.touchReload(); if (navigator.vibrate) navigator.vibrate(20); }} />
+            </div>
+            {/* Grenade — above reload */}
+            <div className="absolute bottom-[190px] left-3">
+              <HudButton size={44} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,197,94,0.4)" borderColor="rgba(74,222,128,0.6)" icon={icons.grenade} onClick={() => { gameRef.current?.touchGrenade(); if (navigator.vibrate) navigator.vibrate(20); }} />
+            </div>
+            {/* Sprint — above grenade */}
+            <div className="absolute bottom-[246px] left-3">
+              <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,211,238,0.4)" borderColor="rgba(34,211,238,0.7)" icon={icons.sprint} onClick={() => { gameRef.current?.setTouchSprint(true); setTimeout(() => gameRef.current?.setTouchSprint(false), 3000); if (navigator.vibrate) navigator.vibrate(15); }} />
+            </div>
+            {/* Lean left — top-left area */}
+            <div className="absolute top-28 left-3">
+              <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanLeft} onDown={() => { gameRef.current?.setLean('left'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
+            </div>
+            {/* Lean right — next to lean left */}
+            <div className="absolute top-28 left-[48px]">
+              <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanRight} onDown={() => { gameRef.current?.setLean('right'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
+            </div>
+            {/* Emote — next to lean */}
+            <div className="absolute top-28 left-[96px]">
+              <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.emote} onClick={() => { if (navigator.vibrate) navigator.vibrate(15); }} />
+            </div>
           </div>
 
-          {/* Emote/spray wheel — top-left corner (COD mobile style) */}
-          <div className="absolute top-28 left-3 z-30 touch-none">
-            <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.emote} onClick={() => { if (navigator.vibrate) navigator.vibrate(15); }} />
-          </div>
-
-          {/* Lean buttons — small circular icons above joystick area */}
-          <div className="absolute top-28 left-[52px] z-30 flex gap-1.5 touch-none">
-            <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanLeft} onDown={() => { gameRef.current?.setLean('left'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
-            <HudButton size={36} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.leanRight} onDown={() => { gameRef.current?.setLean('right'); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setLean(null)} />
-          </div>
-
-          {/* Right side — look swipe area */}
+          {/* ── CENTER: Look swipe zone (between left and right button clusters) ── */}
           <div
-            className="absolute bottom-0 right-0 w-[60%] h-[55%] z-10 touch-none"
+            className="absolute bottom-0 left-[38%] right-[38%] h-[55%] z-10 touch-none"
             style={{ pointerEvents: 'auto' }}
             onTouchStart={(e) => {
               const t = e.changedTouches[0];
@@ -2469,12 +2480,10 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
               if (!t) return;
               const swipeDist = t.clientY - lookJoyRef.current.startY;
               const swipeTime = Date.now() - lookJoyRef.current.startTime;
-              // Swipe down to reload (COD Mobile gesture)
               if (swipeDist > 120 && swipeTime < 400) {
                 gameRef.current?.touchReload();
                 if (navigator.vibrate) navigator.vibrate(30);
               }
-              // Swipe up to jump (COD Mobile gesture)
               if (swipeDist < -100 && swipeTime < 300) {
                 gameRef.current?.touchJump();
                 if (navigator.vibrate) navigator.vibrate(20);
@@ -2484,35 +2493,27 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             }}
           />
 
-          {/* Right-side action buttons — COD Mobile style layout */}
+          {/* ── RIGHT SIDE: Fire + action buttons ── */}
           <div className="absolute bottom-0 right-0 z-30 touch-none">
-            {/* Fire button — large, bottom-right corner, doubles as look/aim while firing */}
-            <div className="absolute bottom-4 right-4">
-              <HudButton size={64} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.6)" borderColor="rgba(248,113,113,0.8)" icon={icons.fire} onDown={() => { gameRef.current?.setTouchFiring(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchFiring(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
-            </div>
-            {/* ADS — directly above fire, also allows aim adjustment while scoped */}
-            <div className="absolute bottom-[76px] right-4">
-              <HudButton size={50} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(59,130,246,0.5)" borderColor="rgba(96,165,250,0.7)" icon={icons.scope} onDown={() => { gameRef.current?.setTouchADS(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchADS(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
+            {/* RIGHT fire+aim+scope button — combined like COD Mobile: hold to fire + ADS + aim assist, drag to look */}
+            <div className="absolute bottom-5 right-4">
+              <HudButton size={72} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.6)" borderColor="rgba(248,113,113,0.8)" icon={icons.fire} onDown={() => { gameRef.current?.setTouchFiring(true); gameRef.current?.setTouchADS(true); gameRef.current?.setAimAssist(0.6); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => { gameRef.current?.setTouchFiring(false); gameRef.current?.setTouchADS(false); gameRef.current?.setAimAssist(0); }} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
             </div>
             {/* Crouch — left of fire */}
-            <div className="absolute bottom-4 right-[76px]">
-              <HudButton size={46} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.crouch} onClick={() => { gameRef.current?.touchCrouch(); if (navigator.vibrate) navigator.vibrate(10); }} />
+            <div className="absolute bottom-5 right-[82px]">
+              <HudButton size={48} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.crouch} onClick={() => { gameRef.current?.touchCrouch(); if (navigator.vibrate) navigator.vibrate(10); }} />
             </div>
             {/* Jump — above crouch */}
-            <div className="absolute bottom-[76px] right-[76px]">
+            <div className="absolute bottom-[82px] right-[82px]">
               <HudButton size={46} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.jump} onClick={() => { gameRef.current?.touchJump(); if (navigator.vibrate) navigator.vibrate(15); }} />
             </div>
-            {/* Reload — left of crouch */}
-            <div className="absolute bottom-4 right-[132px]">
-              <HudButton size={44} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.reload} onClick={() => { gameRef.current?.touchReload(); if (navigator.vibrate) navigator.vibrate(20); }} />
+            {/* Melee — above fire */}
+            <div className="absolute bottom-[90px] right-6">
+              <HudButton size={44} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.4)" borderColor="rgba(248,113,113,0.6)" icon={icons.knife} onClick={() => { gameRef.current?.touchMelee(); if (navigator.vibrate) navigator.vibrate(40); }} />
             </div>
-            {/* Grenade — above reload */}
-            <div className="absolute bottom-[76px] right-[132px]">
-              <HudButton size={42} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(34,197,94,0.4)" borderColor="rgba(74,222,128,0.6)" icon={icons.grenade} onClick={() => { gameRef.current?.touchGrenade(); if (navigator.vibrate) navigator.vibrate(20); }} />
-            </div>
-            {/* Melee — above ADS */}
-            <div className="absolute bottom-[132px] right-[76px]">
-              <HudButton size={42} opacity={settings.buttonOpacity} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.4)" borderColor="rgba(248,113,113,0.6)" icon={icons.knife} onClick={() => { gameRef.current?.touchMelee(); if (navigator.vibrate) navigator.vibrate(40); }} />
+            {/* Quick-scope — above melee */}
+            <div className="absolute bottom-[146px] right-6">
+              <HudButton size={42} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.quickScope} onClick={() => { gameRef.current?.touchQuickScope(); if (navigator.vibrate) navigator.vibrate(25); }} />
             </div>
             {/* Weapon switch — top-right corner */}
             <div className="absolute top-16 right-3">
@@ -2524,9 +2525,13 @@ export const Game3D: React.FC<Game3DProps> = ({ onExit, onKill, onMatchEnd, miss
             </div>
           </div>
 
-          {/* Quick-scope shortcut — desktop: top-right, mobile: left side above lean buttons */}
-          <div className={`absolute z-30 touch-none ${isMobile ? 'bottom-[132px] right-4' : 'top-24 right-4'}`}>
-            <HudButton size={40} opacity={settings.buttonOpacity} scale={settings.buttonSize} icon={icons.quickScope} onClick={() => { gameRef.current?.touchQuickScope(); if (navigator.vibrate) navigator.vibrate(25); }} />
+          {/* ── LEFT FIRE button — for left-handed play, bottom-left corner above joystick ── */}
+          <div className="absolute bottom-[130px] left-[60px] z-30 touch-none">
+            <HudButton size={56} opacity={settings.buttonOpacity * 0.85} scale={settings.buttonSize} activeColor="rgba(239,68,68,0.5)" borderColor="rgba(248,113,113,0.7)" icon={icons.fire} onDown={() => { gameRef.current?.setTouchFiring(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchFiring(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
+          </div>
+          {/* LEFT ADS/scope assist — next to left fire */}
+          <div className="absolute bottom-[130px] left-[124px] z-30 touch-none">
+            <HudButton size={46} opacity={settings.buttonOpacity * 0.85} scale={settings.buttonSize} activeColor="rgba(59,130,246,0.4)" borderColor="rgba(96,165,250,0.6)" icon={icons.scope} onDown={() => { gameRef.current?.setTouchADS(true); if (navigator.vibrate) navigator.vibrate(10); }} onUp={() => gameRef.current?.setTouchADS(false)} onDrag={(dx, dy) => gameRef.current?.setTouchLook(dx, dy)} />
           </div>
         </>
       )}
